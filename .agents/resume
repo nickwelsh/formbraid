@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+# Dependencies survive pause/resume. Only check readiness; never reinstall on wake.
+for tool in node pnpm php composer; do
+    if ! command -v "$tool" >/dev/null; then
+        echo "[resume] Missing $tool; run .agents/setup to repair this orb" >&2
+        exit 1
+    fi
+done
+if [[ ! -d node_modules || ! -f packages/laravel/vendor/autoload.php ]]; then
+    echo '[resume] Missing dependencies; run .agents/setup to repair this orb' >&2
+    exit 1
+fi
+
+echo '[resume] Node and PHP dependencies are ready; no backing services to reconnect'

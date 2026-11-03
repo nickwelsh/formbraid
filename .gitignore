@@ -16,3 +16,4 @@ apps/docs/generated/
 .dev.vars*
 
 artifacts/
+.amp/portals/

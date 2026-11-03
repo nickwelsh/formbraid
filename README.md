@@ -50,6 +50,12 @@ vp exec tsx packages/generator/src/cli.ts generate --config examples/react/formb
 
 `--check` detects drift without writing generated files. In environments that restrict local sockets, add `--debug --no-progress` to PHPStan to run without worker processes.
 
+### Amp orbs
+
+`.agents/setup` prepares Node 24, the pnpm version from `package.json`, PHP 8.4 with its required extensions, and Composer 2. It installs both lockfiles' development dependencies and builds the library exports and workspace CLI. Vite+ caches the library builds; setup does not build the docs site, start servers, or authenticate deployment services. No database or secrets are needed for local tests or the React example.
+
+Amp can snapshot this prepared environment for fresh orbs. Repeated setup checks the installed packages and reuses dependency and build caches. `.agents/resume` only checks readiness after activation or waking; it never reinstalls dependencies. Run `.agents/setup` manually to repair a missing tool or dependency tree.
+
 ## Public form contract
 
 Any package can produce forms for Formbraid. Generation is optional: the React runtime depends on `@formbraid/core`'s public contract, not on the Laravel package or generator. Zero for Laravel and other integrations can implement this contract in their own packages with type-only imports.
