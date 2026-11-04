@@ -133,15 +133,6 @@ describe('portable contracts', () => {
 
     it('converts only literal true and false conditional parameters for boolean dependencies', () => {
         expect.hasAssertions();
-        const definition = (values: ReadonlyArray<string | number | boolean>) => ({
-            defaultValues: {},
-            fields: {
-                details: field('details', {
-                    nullable: true,
-                    constraints: { requiredWhen: [{ field: 'trigger', operator: 'equals', values }] },
-                }),
-            },
-        });
         const comparisons = [
             { values: ['1', 1], trigger: true },
             { values: ['0', 0], trigger: false },
@@ -151,14 +142,22 @@ describe('portable contracts', () => {
             { values: [false], trigger: false },
         ];
         const required = [{ path: ['details'], message: 'Details is required.' }];
-        expect(comparisons.map(({ values, trigger }) => issues(definition(values), { trigger }))).toStrictEqual([
-            [],
-            [],
-            required,
-            required,
-            required,
-            required,
-        ]);
+        expect(
+            comparisons.map(({ values, trigger }) =>
+                issues(
+                    {
+                        defaultValues: {},
+                        fields: {
+                            details: field('details', {
+                                nullable: true,
+                                constraints: { requiredWhen: [{ field: 'trigger', operator: 'equals', values }] },
+                            }),
+                        },
+                    },
+                    { trigger },
+                ),
+            ),
+        ).toStrictEqual([[], [], required, required, required, required]);
         expect(
             resolveConstraints(
                 { requiredWhen: [{ field: 'trigger', operator: 'notEquals', values: ['1'] }] },
