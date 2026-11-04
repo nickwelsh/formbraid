@@ -56,7 +56,7 @@ try {
     assert.ok(search.includes('createFormSession'));
     assert.ok(search.includes('Quickstart'));
     const markdown = await get('/formbraid/llms.mdx/docs/0.x/getting-started/quickstart/content.md');
-    assert.ok(markdown.includes('createFormbraid'));
+    assert.ok(markdown.includes('defineConfig'));
     const index = await get('/formbraid/llms.txt');
     assert.ok(index.includes('https://docs.nickwelsh.me/formbraid/docs/0.x'));
 

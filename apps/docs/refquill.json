@@ -10,14 +10,9 @@
             "tsconfig": "../../tsconfig.json",
             "entryPoints": [
                 "../../packages/core/src/index.ts",
+                "../../packages/core/src/vite.ts",
                 "../../packages/react/src/index.ts",
-                "../../packages/react/src/generator.ts",
-                "../../packages/generator/src/index.ts",
-                "../../packages/generator/src/react.ts",
-                "../../packages/inertia/src/index.ts",
-                "../../packages/inertia/src/effect.ts",
-                "../../packages/inertia/src/generator.ts",
-                "../../packages/laravel/js/generator.ts"
+                "../../packages/generator/src/index.ts"
             ]
         },
         {

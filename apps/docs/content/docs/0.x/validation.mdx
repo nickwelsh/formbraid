@@ -38,6 +38,6 @@ Native schema keys containing dots, brackets, or other segments that field paths
 
 ## Server validation and extraction limits
 
-Render field errors through `useFieldContext` and root errors from `state.errors['']`. Laravel errors returned by a submission driver become session errors. Errors from an older submitted draft do not overwrite fields changed after submission.
+Render field errors through `useFieldContext` and root errors from `state.errors['']`. Laravel errors returned by a submission callback become session errors. Errors from an older submitted draft do not overwrite fields changed after submission.
 
-Generation requires rules that can be described without authenticated/live request values. FormRequests are instantiated without running validation or authorization; request-dependent rules may need a dedicated source driver. Registry inspection supports callable components and statically inspectable `withFieldGroup` declarations; complex wrappers may need a framework driver that supplies a manifest.
+Generation requires rules that can be described without authenticated/live request values. FormRequests are instantiated without running validation or authorization; request-dependent metadata may need a custom producer. Static component inspection supports callable components and statically inspectable `withFieldGroup` declarations; simplify dynamic wrappers so their props and slots can be inspected without executing UI modules.

@@ -9,11 +9,16 @@ Requires Node 24.11+, pnpm (the pinned version is in `package.json`), Vite+ (`vp
 vp install
 composer install --working-dir=packages/laravel
 vp run build
-vp run generate:example
 vp run dev
 ```
 
-The example extracts a real PHP FormRequest using the Laravel package, without requiring a full Laravel application. Its submission driver displays the payload locally. The address lookup uses a fixed sample suggestion; connect your preferred provider, including Google Places, in application code.
+Vite produces component metadata and invokes PHP generation for the example's lightweight application. To exercise the generated Fetch callback, run the PHP backend in a second terminal:
+
+```sh
+php -S 127.0.0.1:8000 -t examples/react/public examples/react/public/index.php
+```
+
+Vite proxies submission and CSRF-cookie routes to that backend. The address lookup uses a fixed sample suggestion; connect your preferred provider in application code. There is no generator CLI or separate React generator pipeline.
 
 ```sh
 vp check
@@ -22,10 +27,9 @@ vp test run
 composer --working-dir=packages/laravel test
 composer --working-dir=packages/laravel check
 php packages/laravel/vendor/bin/pint --test packages/laravel/src packages/laravel/tests examples/react/php
-vp exec tsx packages/generator/src/cli.ts generate --config examples/react/formbraid.config.ts --check
 ```
 
-`--check` detects drift without writing generated files. In environments that restrict local sockets, add `--debug --no-progress` to PHPStan to run without worker processes.
+To refresh generated example outputs, run its Vite build and review the worktree. Standalone Artisan generation consumes existing JSON and cannot refresh component metadata. Missing metadata means Vite must run once; do not create placeholder JSON. Generated outputs are hash-owned and reject edited/unowned collisions, while init scaffolds remain user-owned. In environments that restrict local sockets, add `--debug --no-progress` to PHPStan to run without worker processes.
 
 ## Build documentation
 
@@ -45,7 +49,7 @@ The build then prerenders the site and packages an assets-only Cloudflare Worker
 
 ## Continuous integration and releases
 
-The Check workflow verifies TypeScript, package builds, generated example drift, PHP, and documentation on every push and pull request. It tests the packaged docs in the Workers runtime and validates the deployment artifact without credentials. Release deployment waits for both the TypeScript and PHP jobs.
+The Check workflow verifies TypeScript, package builds, generated example output, PHP, and documentation on every push and pull request. It tests the packaged docs in the Workers runtime and validates the deployment artifact without credentials. Release deployment waits for both the TypeScript and PHP jobs. npm publication covers core, React, and the optional generator SDK; the sole Laravel integration is the Composer package.
 
 Only pushed release tags matching `v*` deploy to `https://docs.nickwelsh.me/formbraid`. The deploy job uses the exact artifact that passed the docs build and dry run. Configure the GitHub `cloudflare` environment's `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` before the first release. The token needs Workers Scripts Edit and zone Workers Routes Edit, plus Zone Read for route discovery.
 

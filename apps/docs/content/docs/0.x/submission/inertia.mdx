@@ -1,69 +1,53 @@
 ---
-title: Inertia submission
-description: Bind generated HTTP actions to Inertia visits, errors, progress, and cancellation.
+title: Generated Fetch and Inertia callbacks
+description: Choose a PHP submission generator without installing a runtime adapter.
 ---
 
-The runtime adapter submits validated values using Inertia's visit lifecycle. Its generator adapter connects named Laravel HTTP operations to portable bindings.
+The Composer integration emits executable callbacks into version-1 descriptors. Choose the generator in PHP configuration, not in a React submission registry:
 
-## Register the runtime
-
-```ts
-import { inertia } from '@formbraid/inertia';
-
-const submissions = {
-    web: inertia({ visit: { preserveScroll: true, errorBag: 'profile' } }),
-};
+```php title="config/formbraid.php"
+'submission_driver' => Formbraid\Laravel\Drivers\Fetch::class,
+// Or, for an existing Inertia React application:
+// 'submission_driver' => Formbraid\Laravel\Drivers\Inertia::class,
 ```
 
-Pass `submissions` to `createFormbraid`. The key `web` must match the key in the generator configuration or descriptor. For a form without a generated action, use `bindForm`:
+Regenerate through Vite after changing this config. The PHP `SubmissionDriver` interface is a code-emission contract, not a JavaScript runtime executor. There is no Formbraid Inertia package, Laravel Node package, named JSON binding, or `bindForm` call.
 
-```ts
-import { bindForm } from '@formbraid/core';
+## Fetch
 
-const profileForm = bindForm(definition, {
-    driver: 'web',
-    binding: { kind: 'http', url: '/profile', method: 'patch' },
-});
-```
+The default Fetch generator emits self-contained browser code. It uses same-origin credentials and reads the live `XSRF-TOKEN` cookie on every request, URL-decoding its value into `X-XSRF-TOKEN`. Keep the application's normal Laravel session and CSRF middleware; no manual token plumbing is needed.
 
-The application supplies the `definition` and imports the registered `Form` to render `profileForm`. A per-form `submission` override can replace the descriptor's executor.
+Generated code serializes supported values, handles multipart uploads and Laravel method spoofing, maps validation errors to `invalid`, maps expected HTTP/network failures to `failure`, and honors the abort signal. Fetch does not provide upload progress events; use Inertia when your application needs its upload lifecycle.
 
-## Observe results
+## Inertia
 
-Use `onResult` for the settled outcome and `onProgress` for uploads:
+The Inertia generator dynamically imports the application's existing `@inertiajs/react` router. Keep the app's usual Inertia dependencies and server middleware; do not install a separate Formbraid transport or register a driver at runtime. Use normal Inertia responses and validation redirects on the server.
+
+The callback waits for the visit lifecycle, returns success or field errors, forwards upload progress, and connects cancellation to the visit. Errors and cancellation become explicit submission outcomes rather than resolving a promise and assuming success. Session cancellation suppresses late progress and outcomes; it cannot undo a server mutation already accepted.
+
+## Render and observe results
 
 ```tsx
+import { Form } from './formbraid';
+import { update } from './formbraid/laravel/controllers/App/Http/Controllers/ProfileController';
+
 <Form
-    form={update.form()}
+    form={update({ user: 42 })}
     onResult={(result) => {
         if (result.status === 'success') showSavedMessage();
     }}
     onProgress={(progress) => showUploadProgress(progress)}
-/>
+/>;
 ```
 
-`update`, `showSavedMessage`, and `showUploadProgress` are application imports. State is also available from `form.Subscribe` and `useFormContext`.
+`showSavedMessage` and `showUploadProgress` are application functions. `update(...)` returns a descriptor directly, not `.form()`. Field errors use `useFieldContext`; root errors use `state.errors['']`. Later edits stay dirty, and stale submitted errors cannot overwrite edited fields.
 
-| Result      | Meaning                                      |
-| ----------- | -------------------------------------------- |
-| `success`   | The visit reports success                    |
-| `invalid`   | Laravel/Inertia returned validation errors   |
-| `cancelled` | The visit or session was cancelled or vetoed |
-| `failure`   | An expected transport or payload failure     |
-| `defect`    | An unexpected execution defect               |
+| Result      | Meaning                                 |
+| ----------- | --------------------------------------- |
+| `success`   | Authoritative endpoint/visit acceptance |
+| `invalid`   | Server validation errors                |
+| `cancelled` | Cancelled execution                     |
+| `failure`   | Expected transport failure              |
+| `defect`    | Unexpected execution defect             |
 
-Formbraid manages the visit's method, data, completion callbacks, cancellation, errors, and upload progress. Configure other options through `visit`. An optional `router` permits an injected router that follows Inertia's lifecycle.
-
-## Errors and uploads
-
-Scoped Laravel errors become session errors. Render field errors through `useFieldContext`; root errors use the empty path `state.errors['']`. Select an `errorBag` when multiple forms share a page.
-
-The transport accepts a plain record or `FormData`. Nested values support plain records, arrays, strings, booleans, null/undefined, finite numbers, valid dates, and files/blobs. Unsupported class instances, cycles, invalid dates, and nonfinite numbers fail before the visit starts.
-
-## Cancellation and concurrency
-
-The form cancels its own visit when cancelled or unmounted. Global `before` vetoes settle as cancelled, including when the router emits no completion callback. Aborting during `before` prevents acceptance.
-
-Duplicate submissions share the active validation and submission. A submitted draft is captured; later edits remain editable and dirty. Stale server errors do not overwrite fields changed since submission. Late progress and outcomes are suppressed after cancellation.
-
-The [Inertia Effect adapter](./effect.mdx) integrates directly with an Effect-native router and has its own navigation outcome semantics.
+A local `submit` callback can replace generated execution for one form. Use [callbacks](./callbacks.mdx) for external integrations and [Effect operations](./effect.mdx) for native Effect execution and services.

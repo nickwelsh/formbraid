@@ -1,4 +1,4 @@
-import type { Effect, Schema as EffectSchema } from 'effect';
+import type { Schema as EffectSchema } from 'effect';
 
 export type JsonValue = EffectSchema.Json;
 
@@ -77,8 +77,8 @@ export interface UploadProgress {
     readonly percentage?: number;
 }
 
-// Conditional void success retains the portable driver's no-payload contract.
-/* oxlint-disable typescript/no-invalid-void-type -- void is used to distinguish no-payload driver success from typed operation success. */
+// Conditional void success permits callbacks with no payload.
+/* oxlint-disable typescript/no-invalid-void-type -- void distinguishes no-payload success from typed success. */
 export type SubmissionResult<TSuccess = void, TError = unknown> =
     | ({ readonly status: 'success' } & ([TSuccess] extends [void]
           ? { readonly value?: TSuccess }
@@ -89,17 +89,6 @@ export type SubmissionResult<TSuccess = void, TError = unknown> =
     | { readonly status: 'defect'; readonly error: unknown };
 
 /* oxlint-enable typescript/no-invalid-void-type */
-
-export interface SubmissionContext {
-    readonly data: object;
-    readonly binding: JsonValue;
-    readonly signal: AbortSignal;
-    readonly onProgress?: (progress: UploadProgress) => void;
-}
-
-export interface SubmissionDriver {
-    readonly submit: (context: SubmissionContext) => Effect.Effect<SubmissionResult>;
-}
 
 /** Runtime context supplied to per-form callbacks after validation. */
 export interface SubmissionCallbackContext {
@@ -115,13 +104,7 @@ export type SubmissionCallback<TOutput, TSuccess = void, TError = unknown> = (
 
 export interface CallbackSubmission<TOutput, TSuccess = void, TError = unknown> {
     readonly submit: SubmissionCallback<TOutput, TSuccess, TError>;
-    readonly driver?: never;
-    readonly binding?: never;
 }
-
-export type FormSubmission<TOutput, TSuccess = void, TError = unknown> =
-    | SubmissionBinding
-    | CallbackSubmission<TOutput, TSuccess, TError>;
 
 /** Public producer contract. React owns the session; producers supply data and execution. */
 export interface FormDescriptor<
@@ -136,35 +119,7 @@ export interface FormDescriptor<
     readonly version: 1;
     readonly definition: FormDefinition<TValues, TFields, TGroups, TOutput, TSchemaServices>;
     readonly defaultValues?: TValues;
-    readonly submission: FormSubmission<TOutput, TSuccess, TError>;
-}
-
-/** JSON-only form descriptor for generators and external data boundaries. */
-export interface FormDescriptorData {
-    readonly version: 1;
-    readonly definition: Omit<FormDefinition<Record<string, JsonValue>>, 'schema'>;
-    readonly defaultValues?: Record<string, JsonValue>;
-    readonly submission: SubmissionBinding;
-}
-
-/** Legacy driver binding shape; new producers should use FormDescriptor. */
-export interface BoundForm<
-    TDefinition extends FormDefinition<
-        object,
-        Readonly<Record<string, FieldDefinition>>,
-        Readonly<Record<string, GroupDefinition>>,
-        unknown,
-        unknown
-    > = FormDefinition,
-> {
-    readonly definition: TDefinition;
-    readonly submission: SubmissionBinding;
-}
-
-export interface SubmissionBinding {
-    readonly submit?: never;
-    readonly driver: string;
-    readonly binding: JsonValue;
+    readonly submission: CallbackSubmission<TOutput, TSuccess, TError>;
 }
 
 export interface HttpOperation {

@@ -1,4 +1,4 @@
-import type { FieldDefinition, FormDefinition, GroupDefinition, SubmissionBinding, BoundForm } from './contracts.js';
+import type { FieldDefinition, FormDefinition, GroupDefinition } from './contracts.js';
 import { pathSegments } from './paths.js';
 
 // oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- The outer constraint permits explicitly chosen services while the inner schema generic infers them.
@@ -27,18 +27,6 @@ export function defineForm<TValues extends object, TOutput = TValues, TServices 
         }
         return definition;
     };
-}
-
-export function bindForm<
-    TDefinition extends FormDefinition<
-        object,
-        Readonly<Record<string, FieldDefinition>>,
-        Readonly<Record<string, GroupDefinition>>,
-        unknown,
-        unknown
-    >,
->(definition: TDefinition, submission: SubmissionBinding): BoundForm<TDefinition> & { readonly version: 1 } {
-    return { version: 1, definition, submission };
 }
 
 export function routeUrl(uri: string, parameters: Readonly<Record<string, string | number>>): string {

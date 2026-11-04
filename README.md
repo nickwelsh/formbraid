@@ -1,99 +1,47 @@
 # Formbraid
 
-Generate application-owned React forms from Laravel FormRequests. Effect 4 owns form state, subscriptions, validation, submission, metadata decoding, and generation workflows. Native Effect scopes, fibers, and deferred results manage execution and cancellation; the Node adapter supplies filesystem and subprocess services. React bindings, source extraction, and submission transports stay separate from the portable form contract.
+Framework-agnostic form contracts, application-owned components, and Effect-powered state and execution. Any integration can produce a typed definition and a callback-backed descriptor; the runtime does not depend on the backend or producer. React is the current UI binding. Laravel is an optional Composer integration, not a runtime requirement.
 
-This repository uses **Vite+** for development, packaging, formatting, type-aware linting, and Vitest. TypeScript uses strict mode, exact optional properties, unchecked indexed access, no implicit returns, no unused symbols, and erasable syntax. The lint configuration adapts the supplied Roost configuration, with documented exceptions at native framework and process-adapter boundaries. PHP uses Pint and PHPStan at maximum level.
+Formbraid owns the editable draft, validation, subscriptions, and submission lifetime. Your application owns HTML, accessibility, styling, and widgets. Producers supply definitions and submission callbacks rather than a second editable-value store.
 
 ## Packages
 
-| Package                | Responsibility                                                                                  |
-| ---------------------- | ----------------------------------------------------------------------------------------------- |
-| `@formbraid/core`      | Portable definitions, constraint validation, Effect form sessions, route binding                |
-| `@formbraid/react`     | React subscriptions, bound fields/components/groups, automatic layouts                          |
-| `@formbraid/inertia`   | Inertia submission, server errors, upload progress, scoped cancellation                         |
-| `@formbraid/generator` | Driver contracts, generation orchestration, artifact synchronization and drift checks           |
-| `@formbraid/laravel`   | Node generator integration, backend enum generation and HTTP operation provider                 |
-| `formbraid/laravel`    | Laravel configuration, FormRequest extraction, `formbraid:export` and `formbraid:http` commands |
-| `examples/react`       | Runnable profile form with a composite address field group                                      |
+| Package                | Responsibility                                                                            |
+| ---------------------- | ----------------------------------------------------------------------------------------- |
+| `@formbraid/core`      | Portable definitions and descriptors, constraint validation, Effect form sessions         |
+| `@formbraid/core/vite` | Build-only integration contracts, static component inspection, Vite plugin                |
+| `@formbraid/react`     | React contexts, subscriptions, typed fields, form components, groups, and layouts         |
+| `@formbraid/generator` | Optional producer-author tooling SDK re-exporting `@formbraid/core/vite`                  |
+| `formbraid/laravel`    | Composer integration: scaffolding, FormRequest extraction, enum and TypeScript generation |
 
-Packages have not been published to npm or Packagist. See [RELEASING.md](RELEASING.md) for staging, trusted publishing, the Composer mirror, and documentation deployment. The runtime uses **Effect 4.0.2**.
+Applications need `@formbraid/core`, `@formbraid/react`, `effect`, and `react`; they do not need the generator SDK. There is no Formbraid Inertia package or Laravel Node package. npm publication covers three packages: core, React, and generator. Composer publication remains `formbraid/laravel`. Packages have not yet been published; use workspace dependencies or local archives and a Composer path repository. See [RELEASING.md](RELEASING.md).
 
-The [documentation site](https://docs.nickwelsh.me/formbraid) includes usage guides and a Refquill-generated TypeScript/PHP API reference. Run `pnpm docs:dev` locally or see [apps/docs](apps/docs/README.md) for release deployment setup.
-
-The [performance benchmark](benchmarks/README.md) includes a mounted React form with up to 5,000 inputs and a headless editing/subscription harness, with recorded measurements and reproduction instructions.
-
-Existing integrations must replace their form hook factory with direct `createFormbraid` registries, import context hooks from `@formbraid/react`, and update field components to `value`, `setValue`, `touch`, and `errors`. Remove the previous form-library dependencies and application hook/context modules. Custom source drivers, operation providers, and submission drivers return Effects; wrap synchronous work with `Effect.sync`, and use `Effect.callback` or `Effect.tryPromise` at asynchronous platform boundaries.
-
-## Run the monorepo
-
-Requires Node 24.11+, pnpm (the pinned version is in `package.json`), Vite+ (`vp`), PHP 8.4.1+ for the locked development dependencies, and Composer. The PHP package supports PHP 8.3+; CI uses PHP 8.4.
-
-```sh
-vp install
-composer install --working-dir=packages/laravel
-vp run build
-vp run generate:example
-vp run dev
-```
-
-The example extracts a real PHP FormRequest using the Laravel package, without requiring a full Laravel application. Its submission driver displays the payload locally. The address lookup uses a fixed sample suggestion; connect your preferred provider, including Google Places, in application code.
-
-```sh
-vp check
-vp exec tsc --noEmit
-vp test run
-composer --working-dir=packages/laravel test
-composer --working-dir=packages/laravel check
-php packages/laravel/vendor/bin/pint --test packages/laravel/src packages/laravel/tests examples/react/php
-vp exec tsx packages/generator/src/cli.ts generate --config examples/react/formbraid.config.ts --check
-```
-
-`--check` detects drift without writing generated files. In environments that restrict local sockets, add `--debug --no-progress` to PHPStan to run without worker processes.
-
-### Amp orbs
-
-`.agents/setup` prepares Node 24, the pnpm version from `package.json`, PHP 8.4 with its required extensions, and Composer 2. It installs both lockfiles' development dependencies and builds the library exports and workspace CLI. Vite+ caches the library builds; setup does not build the docs site, start servers, or authenticate deployment services. No database or secrets are needed for local tests or the React example.
-
-Amp can snapshot this prepared environment for fresh orbs. Repeated setup checks the installed packages and reuses dependency and build caches. `.agents/resume` only checks readiness after activation or waking; it never reinstalls dependencies. Run `.agents/setup` manually to repair a missing tool or dependency tree.
+The [documentation](https://docs.nickwelsh.me/formbraid/) includes usage guides and a generated API reference. The runtime uses Effect **4.0.2**. See also the [performance benchmark](benchmarks/README.md).
 
 ## Public form contract
 
-Any package can produce forms for Formbraid. Generation is optional: the React runtime depends on `@formbraid/core`'s public contract, not on the Laravel package or generator. Zero for Laravel and other integrations can implement this contract in their own packages with type-only imports.
-
-A `FormDescriptor` is a versioned object pairing a reusable `FormDefinition` with a submission strategy and optional record-specific defaults:
+Generation is optional. A producer can return a version-1 descriptor using only core's public types:
 
 ```ts
 import type { FormDefinition, FormDescriptor, SubmissionCallback } from '@formbraid/core';
 
 type TodoValues = { title: string; done: boolean };
-
-// Produced by your integration; fields retain literal component names and keys.
 declare const definition: FormDefinition<TodoValues>;
 
-const httpForm = {
-    version: 1,
-    definition,
-    defaultValues: { title: 'Buy milk', done: false },
-    submission: {
-        driver: 'http',
-        binding: { kind: 'http', url: '/todos/42', method: 'patch' },
-    },
-} satisfies FormDescriptor<TodoValues>;
-```
-
-Register a matching runtime executor, for example `submissions: { http: inertia() }`, in `createFormbraid`. The producer supplies the target; the application chooses how that target executes. Existing Laravel generation now emits this descriptor from each generated action's `.form(parameters)` helper. Generator submission keys still select runtime driver names.
-
-For an integration that owns execution, supply a callback instead of a driver:
-
-```ts
 const submit: SubmissionCallback<TodoValues> = async (values, { signal }) => {
-    // prepareAndSubmit represents your integration's own mutation execution.
-    const result = await prepareAndSubmit(values, signal);
-    if (result.errors) return { status: 'invalid', errors: result.errors };
+    const response = await fetch('/api/todos/42', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+        signal,
+    });
+    // This endpoint's successful response must mean authoritative acceptance.
+    // Supply application authentication/CSRF and map validation errors as needed.
+    if (!response.ok) return { status: 'failure', error: new Error(`Save failed: ${response.status}`) };
     return { status: 'success' };
 };
 
-const callbackForm = {
+const todoForm = {
     version: 1,
     definition,
     defaultValues: { title: 'Buy milk', done: false },
@@ -101,30 +49,21 @@ const callbackForm = {
 } satisfies FormDescriptor<TodoValues>;
 ```
 
-`submission` accepts exactly one strategy. Callbacks receive validated output and `{ signal, onProgress }`, and return a `SubmissionResult` directly or through a Promise. Results are `success`, `invalid` (field/root errors), `failure` (an expected error), `cancelled`, or `defect`. Use `SubmissionCallback<Output, Success, Error>` for typed result payloads. Thrown exceptions and rejected Promises settle as defects; expected failures must be returned explicitly. Report success only after authoritative acceptance, not merely an optimistic local write.
+Callbacks receive decoded values and `{ signal, onProgress }` and return an explicit `SubmissionResult` or `PromiseLike<SubmissionResult>`. Results are `success`, `invalid` (field/root errors), `failure` (expected errors), `cancelled`, or `defect`. Use `SubmissionCallback<Output, Success, Error>` for typed payloads. Thrown exceptions and rejected promises become defects; return expected failures explicitly. Do not report success for an optimistic write that the server may still reject.
 
-A hook in another package can return `{ form: callbackForm }` without importing the application registry or creating a session:
+There is no runtime submission-driver registry, named JSON binding, `bindForm`, or executable JSON descriptor parser. Validate external metadata at its boundary, then attach a trusted callback in code. `defineForm<Values>()` preserves literal field and component names. Native Effect schemas can extend definitions for decoding and transformations.
 
 ```tsx
-const { form } = useMutation(todo.update()); // Supplied by the external integration.
-return <Form form={form} />;
+// Form and useForm come from your component configuration below.
+<Form form={todoForm} />;
 
-// For programmatic field access:
-const instance = useForm(form);
+const instance = useForm(todoForm);
 return <Form form={instance} />;
 ```
 
-`Form` creates the Formbraid session. Its components read values, errors, and submission state from that one session. A producer must not synchronize a separate editable-value store with Formbraid. Definition defaults are the fallback; descriptor defaults override them, and an explicit `defaultValues` option overrides descriptor defaults. Defaults initialize a mount rather than resetting edits on rerender. Use a key or explicit reset to switch records. Callbacks update on committed renders, while an in-flight submission keeps its captured handler and values.
+Definition defaults are the fallback; descriptor defaults override them, and explicit `defaultValues` override descriptor defaults. Defaults initialize a mount, not every rerender. Use a key or reset to switch records. Committed callback changes affect future submissions; an in-flight submission retains its captured handler and values. A local `submit` callback or Effect `operation` can override descriptor execution.
 
-Cancellation aborts the callback's signal and suppresses late outcomes and progress. The integration owns any underlying cancellation or cleanup; an already-enqueued durable mutation may still execute. Explicit `submission` or `operation` options replace the descriptor's strategy for that form instance.
-
-For JSON producers, export `FormDescriptorData`, which excludes runtime schemas and callbacks. Its version-1 format is checked by `FormDescriptorSchema`, `parseFormDescriptor(json)`, or `parseFormDescriptorEffect(json)`. All fields, props, constraints, defaults, and driver bindings in this data format are JSON values. Formbraid compiles field constraints into validation at runtime; native Effect schemas remain an optional runtime extension on `FormDefinition` for decoding and transformations. Validate untrusted JSON at the producer boundary before rendering. TypeScript producers should preserve literal field/component keys using `satisfies` or `defineForm<Values>()`, and declare editable default-value types explicitly so a blank initial value does not narrow the entire draft to a string literal.
-
-Bare definitions, existing `bindForm` calls, and initialized form instances remain supported. `bindForm` now includes `version: 1`; `BoundForm` remains available for existing driver-only integrations. No Formbraid-owned Zero adapter is required or included.
-
-## Register application components
-
-Formbraid owns the form session and React contexts. Field components receive presentation metadata and subscribe to their own value, errors, and metadata:
+## Register React components
 
 ```tsx
 import { useFieldContext, type FieldProps } from '@formbraid/react';
@@ -148,415 +87,127 @@ export function TextField({ label, helpText, constraints }: FieldProps<string>) 
                 aria-invalid={field.errors.length > 0}
             />
             {helpText && <p>{helpText}</p>}
-            {field.errors.map((error, index) => (
-                <p key={index} role="alert">
-                    {error}
-                </p>
-            ))}
+            <span role="alert">{field.errors.join(' ')}</span>
         </div>
     );
 }
 ```
 
-`setValue` accepts a value or an updater. `touch()` records interaction; `meta` exposes `isTouched`, `isDirty`, and `isValid`. Errors are normalized strings.
-
-```tsx
-import { useFormContext } from '@formbraid/react';
-
-export function SubmitButton({ label = 'Save' }: { label?: string }) {
-    const form = useFormContext();
-    return (
-        <form.Subscribe selector={(state) => state.isSubmitting}>
-            {(isSubmitting) => (
-                <button type="submit" disabled={isSubmitting}>
-                    {label}
-                </button>
-            )}
-        </form.Subscribe>
-    );
-}
-```
-
-Register the components directly, retaining their literal keys:
+Register literal component keys, with no submission or build integrations in the React configuration:
 
 ```ts
-import { createFormbraid } from '@formbraid/react';
-import { inertia } from '@formbraid/inertia';
-import { TextField, CheckboxField } from './field-components';
+// resources/js/formbraid/index.ts
+import { defineConfig } from '@formbraid/react';
+import { TextField, CheckboxField } from './fields';
 import { SubmitButton, FormErrors } from './form-components';
-import { fieldGroups } from './address-group';
+import { AddressAutocomplete } from './address-group';
 
-const formbraid = createFormbraid({
-    fieldComponents: { TextField, CheckboxField },
+export const { Form, useForm } = defineConfig({
+    components: { TextField, CheckboxField },
     formComponents: { SubmitButton, FormErrors },
-    fieldGroups,
-    submissions: { web: inertia({ visit: { preserveScroll: true, errorBag: 'profile' } }) },
+    groups: { AddressAutocomplete },
     submitComponent: 'SubmitButton',
 });
-
-export default formbraid;
-export const { Form, useForm } = formbraid;
 ```
 
-Avoid annotating registries as broad `Record<string, ...>` types: literal keys power generated enums and typed bound components. Context hooks are exported by `@formbraid/react`, so application context and hook-factory modules are unnecessary.
+`setValue` accepts a value or updater; `touch()` records interaction. Contexts expose normalized errors and `isTouched`, `isDirty`, and `isValid` metadata. Without children, `Form` renders ungrouped fields and each group once in field order, followed by the submit component. Custom layouts receive typed `fields`, `components`, and `groups`. Component identity remains stable across edits and metadata updates.
 
-### Inertia Effect
+See the guides for [components](apps/docs/content/docs/0.x/react/components.mdx), [layouts](apps/docs/content/docs/0.x/react/forms.mdx), [composite groups](apps/docs/content/docs/0.x/react/groups.mdx), and [nested values and arrays](apps/docs/content/docs/0.x/react/arrays.mdx). Dynamic arrays support `append`, `remove`, and `move`; tuples require slot edits or whole-value replacement. Reads through missing/nullable containers and dynamic indexes can include `undefined` while writes retain the declared leaf type.
 
-For [Inertia Effect](https://github.com/nickwelsh/inertia-effect), change the runtime import to:
+## Laravel: scaffold, then start Vite
+
+Install the Composer package in your Laravel app (using a path repository until publication), then run:
+
+```sh
+composer require formbraid/laravel:@dev
+php artisan formbraid:init --register-vite
+```
+
+`formbraid:init` creates user-owned `index.ts`, `fields.tsx`, `form-components.tsx`, and build-safe `laravel.ts` in the directory containing the configured metadata file. It preserves existing files on reruns and never invents metadata JSON. `--register-vite` only edits a conventional literal `defineConfig({ plugins: [...] })` config; otherwise it prints imports and registration instructions:
 
 ```ts
-import { inertia } from '@formbraid/inertia/effect';
+// vite.config.ts — alongside your existing Vite plugins
+import { defineConfig } from 'vite';
+import { vitePlugin as formbraid } from '@formbraid/core/vite';
+import laravelForms from './resources/js/formbraid/laravel';
 
-// Register under the same submission key used by your generated definitions.
-const submissions = {
-    web: inertia({ visit: { preserveScroll: true, errorBag: 'profile' } }),
-};
+export default defineConfig({
+    plugins: [formbraid({ integrations: [laravelForms] })],
+});
 ```
 
-This adapter composes the application's `router.visitEffect` directly. It waits for navigation completion, including the page commit and renderer acknowledgement. Effectful visit callbacks run in the submitting context. The generator remains `@formbraid/inertia/generator`: both adapters use the same HTTP bindings. An optional `router` accepts your own Inertia Effect router instance.
+The generated build-only descriptor uses `registry: new URL('./index.ts', import.meta.url)`, `metadata: new URL('./_metadata.json', import.meta.url)`, and `command: ['php', 'artisan', 'formbraid:generate']`. Its PHP watch patterns include requests, app code, routes, and config; `outputs` excludes generated TypeScript and the enum from input watching.
 
-Success and validation outcomes become Formbraid success and field errors. Navigation failures and handled HTTP/network exceptions become submission failures; defects remain Effect defects. Prevented, interrupted, cancelled, discarded, and redirect outcomes become cancelled submissions. A redirect starts another navigation without awaiting its validation result, so it cannot confirm this submission's success. Aborting the submission signal or interrupting its fiber interrupts the native visit and releases the listener; Inertia can finish an already-started atomic history/render commit before cancellation completes.
+Vite is the sole metadata producer. It statically inspects TypeScript without evaluating browser modules, CSS imports, or `window`; atomically writes `_metadata.json`; then runs Artisan. Dev watching tracks component imports, PHP patterns, and newly created app module directories, coalescing changes and avoiding output loops. Artisan consumes JSON only. If standalone `php artisan formbraid:generate` reports missing metadata, start Vite once; Artisan cannot refresh it.
 
-The fork retains the `@inertiajs/core` package name. Install it as that package so your application and Formbraid share one router. At revision `18db6eba25c95837cf303745e46fc6201bc35177`, the repository does not contain built exports or a package preparation hook. A direct Git dependency therefore lacks executable exports. Until the fork adds a preparation hook, build and pack its core from Git:
-
-```sh
-git clone https://github.com/nickwelsh/inertia-effect.git
-cd inertia-effect
-git checkout 18db6eba25c95837cf303745e46fc6201bc35177
-pnpm install --frozen-lockfile --filter @inertiajs/core...
-pnpm --dir packages/core build
-pnpm --dir packages/core pack --out /tmp/inertia-core-effect.tgz
-# Run in your application:
-pnpm add /tmp/inertia-core-effect.tgz
-```
-
-Use the matching forked React/Vue/Svelte adapter in your application too. Formbraid's development dependency is a core tarball built from this pinned Git revision; its source and rebuild instructions are recorded alongside the archive. Ordinary Inertia applications keep the existing `@formbraid/inertia` import.
-
-## Laravel rules and default components
-
-Install the local Composer package into a Laravel app using a Composer path repository. Laravel discovers its service provider automatically. Publish configuration with:
-
-```sh
-php artisan vendor:publish --tag=formbraid-config
-```
-
-Map rule-inferred value types to your generated enum:
+PHP configuration (showing an additional modular request pattern and a minimal set of mappings):
 
 ```php
-use App\Enums\FormField;
-
 return [
-    'requests' => ['app/Http/Requests'],
+    'requests' => ['app/Http/Requests', 'app/Modules/**/Requests/**/*.php'],
+    'metadata' => 'resources/js/formbraid/_metadata.json',
+    'output' => 'resources/js/formbraid/laravel',
+    'component_enum' => 'app/Formbraid/FormField.php',
+    'submission_driver' => Formbraid\Laravel\Drivers\Fetch::class,
     'fields' => [
-        'types' => [
-            'string' => FormField::TextField,
-            'integer' => FormField::NumberField,
-            'number' => FormField::NumberField,
-            'boolean' => FormField::CheckboxField,
-            'date' => FormField::DateField,
-            'enum' => FormField::SelectField,
-            'file' => FormField::FileField,
-        ],
-        'rules' => [
-            'email' => ['component' => FormField::TextField, 'props' => ['type' => 'email']],
-            'url' => ['component' => FormField::TextField, 'props' => ['type' => 'url']],
-        ],
+        'types' => ['string' => 'TextField', 'boolean' => 'CheckboxField'],
+        'rules' => [],
         'fallbackType' => 'string',
     ],
 ];
 ```
 
-Type mapping establishes the default component and props; the first matching rule mapping in configuration takes priority; `fields()` can override them. Register only components that exist in your application. Arrays and objects require explicit components/configuration.
+`component_enum` is an output file path, not a class name. One merged string-backed enum covers field components, form components, and groups; its namespace follows Composer PSR-4 mappings. Keep initial mappings as strings so the first metadata pass can bootstrap. Afterwards, use generated `App\Formbraid\FormField` cases in `fields()` and `groups()` or config mappings. Clear cached Laravel config after changing it.
 
-A basic FormRequest needs only `rules()`:
+PHP generates namespace-preserving `requests/<FQCN>.ts` definitions using `defineForm`, and `controllers/<ControllerFQCN>.ts` exports:
 
-```php
-public function rules(): array
-{
-    return [
-        'first_name' => ['required', 'string', 'max:255'],
-        'email' => 'required|email',
-        'newsletter' => ['required', 'boolean'],
-    ];
-}
+```tsx
+import { Form } from './formbraid';
+import { update } from './formbraid/laravel/controllers/App/Http/Controllers/ProfileController';
+
+<Form form={update({ user: 42 })} defaultValues={values} />;
 ```
 
-The default label is the title-case version of the final named field segment: `first_name` becomes `First Name`, and `billing.city` becomes `City`.
+`update(...)` returns a descriptor directly; there is no `.form()` helper. Generated outputs are hash-owned: generation refuses edited or unowned files rather than overwriting them. Scaffolds remain user-owned. See [Laravel generation](apps/docs/content/docs/0.x/laravel/generation.mdx).
 
-```php
-use Formbraid\Laravel\Field;
+The PHP `SubmissionDriver::generate(string $endpoint, string $method): string` accepts a safe TypeScript endpoint expression and emits a callback expression. Built-in Fetch emits self-contained code with same-origin credentials, live URL-decoded `XSRF-TOKEN` cookie forwarding as `X-XSRF-TOKEN`, multipart/method spoofing, validation-error mapping, and cancellation. Select `Formbraid\Laravel\Drivers\Inertia::class` for an existing Inertia React app; generated code dynamically imports its `@inertiajs/react` router. No Formbraid Inertia package, runtime registry, or manual CSRF token plumbing is needed.
 
-public function fields(): array
-{
-    return [
-        'email' => Field::make()->helpText('We use this for profile updates.'),
-        'first_name' => Field::make(FormField::TextField)->label('Given Name')->props(['placeholder' => 'Alex']),
-    ];
-}
-```
+## Validation, Effect operations, and headless use
 
-Props must be JSON values. Generation checks supplied props against the application's component types and rejects unknown components, unknown props, invalid values, and missing required props.
+Validation runs on submit, not edit or blur. Native Effect schemas decode the captured draft before submission. Client constraints provide feedback, while the backend remains authoritative for validation and authorization. Generated schemas are cached per definition; treat definitions as readonly. See [validation](apps/docs/content/docs/0.x/validation.mdx) for conditional rules, wildcard arrays, defaults, and server-only checks.
 
-## Generate definitions, actions, and enums
+Callbacks and typed Effect `operation`/`run` options coexist. Operations retain success, domain-error, and service types; native schemas can transform draft values into different output types. The runner must provide the services required by decoding and execution. See the complete [headless session example](apps/docs/content/docs/0.x/advanced/headless.mdx).
 
-```ts
-// formbraid.config.ts
-import { defineConfig } from '@formbraid/generator';
-import { laravel } from '@formbraid/laravel/generator';
-import { react } from '@formbraid/react/generator';
-import { inertia } from '@formbraid/inertia/generator';
+`submitEffect()` is a lazy wait; `submit()` starts the same work immediately. Concurrent callers share one submission. The session owns its fiber and scope; interrupting one waiter does not cancel shared execution. `cancel()`, `reset()`, and `dispose()` interrupt execution for all callers, with scoped finalizers releasing resources. Cancellation aborts callbacks and suppresses late results/progress but cannot undo accepted server mutations. Success commits only the submitted baseline; later edits remain dirty, and stale server errors cannot overwrite them.
 
-const app = laravel();
+## Develop this repository
 
-export default defineConfig({
-    sources: { app },
-    framework: react('./resources/js/forms/index.ts'),
-    submissions: { web: inertia({ bindings: app.http() }) },
-    output: {
-        forms: './resources/js/generated/forms',
-        actions: './resources/js/generated/actions',
-    },
-});
-```
-
-Paths resolve relative to the config file. React inspects the default-exported `createFormbraid` setup and its direct component registries and field groups without executing UI modules. Setup options and group declarations must be statically inspectable.
-
-Request discovery and enum targets belong in `config/formbraid.php`:
-
-```php
-return [
-    'requests' => ['app/Http/Requests'],
-    'enums' => [
-        'fields' => App\Enums\FormField::class,
-        'components' => App\Enums\FormComponent::class,
-        'groups' => App\Enums\FormGroup::class,
-    ],
-    'profiles' => [
-        'fixtures' => ['requests' => ['tests/Fixtures']],
-    ],
-    'fields' => [/* existing type and rule mappings */],
-];
-```
-
-Enum targets are a declarative array of class names or `null` to disable a registry. Paths follow the application's Composer PSR-4 mappings. The Laravel integration reads only this array and its PHP imports before booting Laravel, writes the enums, then extracts schemas. Config and requests can therefore reference generated enum cases on the first run. This uses no config closures and remains compatible with Laravel config caching. Clear cached config after changing backend discovery or mappings. `laravel({ root, profile: 'fixtures' })` selects a backend discovery profile; directories are defined only in PHP.
+Requires Node 24.11+, pinned pnpm, Vite+, Composer, and PHP 8.4.1+ for locked development dependencies (the Composer package supports PHP 8.3+).
 
 ```sh
-formbraid fields                 # enums only; useful for initial setup
-formbraid generate               # enums, forms, and named route actions
-formbraid generate --check       # CI drift check
+vp install
+composer install --working-dir=packages/laravel
+vp run build
+vp run dev
 ```
 
-Routes whose controller/closure parameters reference a FormRequest generate named action modules. For `profile.update` with `/users/{user}`, use:
+Vite starts generation for the example. No generator CLI or separate frontend-framework pipeline is required.
 
-```tsx
-import { update } from './generated/actions/profile';
+To exercise the example's generated Fetch callback, run its PHP backend in a second terminal:
 
-<Form form={update.form({ user: user.id })} defaultValues={values} />;
+```sh
+php -S 127.0.0.1:8000 -t examples/react/public examples/react/public/index.php
 ```
 
-Every generated operation exposes a version-1 `FormDescriptor` through `action.form(parameters)`; call `action.form()` when there are no parameters. Optional Laravel parameters are optional properties. The result pairs the unchanged schema with a named executor and its binding. For an explicit HTTP binding:
+The Vite example proxies its submission and CSRF-cookie routes to that backend. The address lookup uses a fixed sample suggestion; connect your preferred provider in application code.
 
-```ts
-bindForm(definition, {
-    driver: 'web',
-    binding: { kind: 'http', url: '/users/42', method: 'patch' },
-});
+```sh
+vp check
+vp exec tsc --noEmit
+vp test run
+composer --working-dir=packages/laravel test
+composer --working-dir=packages/laravel check
+pnpm docs:check
 ```
 
-Schemas can render directly for local state/validation. Submission requires a bound operation and a registered executor, or a per-form `submission` executor override.
-
-## Layouts and form components
-
-```tsx
-<Form form={update.form({ user: user.id })} defaultValues={values}>
-    {({ fields, components, groups }) => (
-        <>
-            <fields.first_name />
-            <fields.email label="Contact Email" />
-            <groups.address label="Delivery Address" />
-            <components.FormErrors />
-            <components.SubmitButton label="Save" />
-        </>
-    )}
-</Form>
-```
-
-Unknown fields and invalid component props are TypeScript errors. Nested named fields use nested access, such as `<fields.billing.city />`. Bracket paths such as `rows[0].name` expose `fields.rows[0].name`; assign that binding to a capitalized variable, such as `const RowName = fields.rows[0].name`, then render `<RowName />`. A container field can render through `<fields.billing />` while also exposing its child bindings.
-
-Custom children render exactly the supplied layout. Without children, Formbraid renders ungrouped fields and each group once in field order, followed by the configured submit component.
-
-Each mounted `Form` owns an independent Effect form session. Bound component identity stays stable across metadata and field-order changes, preserving focus and drafts. Adding or removing a container's child bindings creates a new immutable container binding; unchanged child bindings retain their identity. `defaultValues` initializes the mount; use a React `key` when switching records, or call `form.reset()` deliberately.
-
-For direct form access:
-
-```tsx
-const profile = useForm(update.form({ user: user.id }), { defaultValues: values });
-// profile.form exposes typed Field, Subscribe, value updates, reset, submit, and cancellation.
-return <Form form={profile} />;
-```
-
-Field reads below optional or nullable containers include `undefined`; dynamic array indexes and record keys can also be missing. Writes retain the declared leaf type. Array paths accept dot and bracket indexes, including equivalent padded indexes, while object keys such as `"01"` remain literal. Missing containers use the encoded Effect schema, generated metadata, or baseline shape to determine whether to create an array or object. Without an inspectable shape, initialize an array explicitly with `append` or a whole-field value. `form.session.resolvePath()` exposes the canonical path used for field metadata and errors.
-
-Numeric object keys support dot and bracket paths and retain their declared value types. Structural helpers (`append`, `remove`, and `move`) accept dynamic arrays. Tuples, including tuples with a variadic rest, require slot edits or a whole-field replacement so their fixed positions and lengths remain intact.
-
-Validation runs only on submit. Generated constraints produce native Effect schemas. The session decodes the captured draft with `Schema.decodeUnknownEffect` before submitting, mapping schema issues to field and root errors. Inertia awaits the visit lifecycle, maps scoped Laravel errors into the session, forwards progress, and cancels the instance's own visit on cancellation/unmount. A driver returns an Effect producing `success`, `invalid`, `cancelled`, `failure`, or `defect`; provide `onResult` to react to the outcome. Root form errors are available at `state.errors['']`; field errors are available through field contexts.
-
-Native schema record keys containing dots, brackets, or other segments that field paths cannot represent produce root validation errors. Their validation messages remain available without turning an invalid draft into a submission defect.
-
-Generated constraint schemas are compiled once per definition object and reused across submissions and sessions. Definitions are readonly; supply a new definition object when changing rules. Schema construction runs inside the submission Effect, so construction defects settle the submission instead of leaving it pending.
-
-Execution snapshots freeze the result envelope and validation messages while preserving typed success/error payload identity. Domain payloads can contain cycles, symbols, or application objects; Formbraid does not clone them. React installs committed submission options before child layout effects can submit, and metadata-only definition updates preserve bound input identity and focus.
-
-Hidden or unmounted React owners suppress progress and result callbacks. Notifications produced before layout activation are deferred until the owner is active; cancellation, reset, and replacement submissions discard stale queued callbacks.
-
-An Inertia global `before` veto settles as `cancelled`, even though Inertia emits no visit completion callback. Detection observes the native event in the window capture phase, is scoped to the exact visit, and supports asynchronous dispatch by injected routers. Injected routers need only `visit` and must follow Inertia's visit lifecycle. Cancellation during `before` dispatch prevents visit acceptance.
-
-An Inertia transport payload must be a plain record or `FormData`. Nested values support plain records, arrays, strings, booleans, null/undefined, finite numbers, valid dates, and files/blobs. Unsupported application objects, nonfinite numbers, invalid dates, and cyclic containers return `failure` before starting a visit.
-
-## Typed Effect operations and headless sessions
-
-Application operations preserve their success, domain error, and service types. Pass native Effect schemas directly: draft values and decoded output can have different types. Decoding and submission share one interruptible Effect, including asynchronous schema checks. The session supplies its execution scope; supply a runner when the schema decoder or operation requires additional services.
-
-```ts
-import { createFormSession, defineForm } from '@formbraid/core';
-import { Context, Effect, Schema } from 'effect';
-
-type SaveError = { readonly _tag: 'SaveFailed'; readonly message: string };
-class ProfileApi extends Context.Service<
-    ProfileApi,
-    {
-        readonly save: (values: { age: number }) => Effect.Effect<{ id: number }, SaveError>;
-    }
->()('ProfileApi') {}
-
-const definition = defineForm<{ age: string }, { age: number }>()({
-    id: 'Profile',
-    defaultValues: { age: '' },
-    fields: {
-        age: {
-            name: 'age',
-            type: 'string',
-            component: 'TextField',
-            label: 'Age',
-            props: {},
-            constraints: {},
-            nullable: false,
-            serverRules: [],
-        },
-    },
-    groups: {},
-    schema: Schema.Struct({ age: Schema.NumberFromString.check(Schema.isFinite()) }),
-});
-
-const services = Context.make(ProfileApi, {
-    save: (values) => Effect.succeed({ id: values.age }),
-});
-const session = createFormSession({
-    definition,
-    operation: (output) =>
-        Effect.gen(function* () {
-            const api = yield* ProfileApi;
-            return yield* api.save(output); // output.age is a number.
-        }),
-    run: Effect.runPromiseWith(services),
-});
-
-session.setValue('age', '42'); // Draft age remains a string.
-const result = await Effect.runPromise(session.submitEffect());
-if (result.status === 'success') console.log(result.value?.id);
-if (result.status === 'failure') console.log(result.error.message);
-session.dispose();
-```
-
-Schema decoder services are inferred from the definition and retained through `bindForm` and React bindings. The runner must provide the services required by both decoding and the operation; TypeScript rejects a missing or insufficient runner.
-
-`submitEffect()` describes a lazy wait for the session's submission and composes with application Effects. `submit()` starts the same work immediately and returns a Promise for event handlers. Concurrent callers of either API share one validation and submission. The session owns the execution fiber and scope, and an optional configured runner supplies application services. Interrupting a waiting fiber leaves the shared execution active. Use `session.cancel()`, `reset()`, or `dispose()` to interrupt the execution for every caller. Effect finalizers release resources on completion and cancellation.
-
-React `useForm` accepts the same `operation` and `run` options. React subscriptions consume stable snapshots from the session's native Effect atom; headless consumers use `getSnapshot()` and `subscribe()`. Each subscription has a scoped lifetime and disposal removes every listener. Submit captures the current draft, coalesces duplicate submissions, and commits the submitted baseline only on success. Edits made during submission stay dirty; stale server errors cannot overwrite fields changed after submission. Cancellation interrupts decoding and submission and suppresses late progress and results. Typed domain errors produce `failure`; unexpected defects produce `defect`.
-
-## Composite groups
-
-Use Formbraid's `withFieldGroup` to let one component own several backend fields:
-
-```tsx
-import { withFieldGroup } from '@formbraid/react';
-
-const addressDefaults: {
-    line1: string;
-    line2: string | null;
-    city: string;
-    state: string;
-    postalCode: string;
-} = { line1: '', line2: null, city: '', state: '', postalCode: '' };
-
-export const AddressAutocomplete = withFieldGroup({
-    defaultValues: addressDefaults,
-    props: { label: 'Address' },
-    render: function AddressAutocomplete({ group, label }) {
-        // In your provider's selection callback:
-        // group.setFieldValue('line1', place.line1);
-        // group.setFieldValue('line2', place.line2);
-        // group.setFieldValue('city', place.city);
-        // group.setFieldValue('state', place.state);
-        // group.setFieldValue('postalCode', place.postalCode);
-        // Render group.Field subscriptions for each slot's errors.
-        // group.touchField('line1') records interaction.
-        return (
-            <fieldset>
-                <legend>{label}</legend>
-                {/* Provider widget */}
-            </fieldset>
-        );
-    },
-});
-
-export const fieldGroups = { AddressAutocomplete };
-```
-
-```php
-use App\Enums\FormGroup;
-use Formbraid\Laravel\FieldGroup;
-
-public function groups(): array
-{
-    return [
-        'address' => FieldGroup::make(FormGroup::AddressAutocomplete)
-            ->label('Delivery Address')
-            ->fields([
-                'line1' => 'address_line_1',
-                'line2' => 'address_line_2',
-                'city' => 'city',
-                'state' => 'state',
-                'postalCode' => 'zip',
-            ]),
-    ];
-}
-```
-
-Every slot must be mapped to a known field with a compatible type for both reading and writing. This includes scalar and enum values, nullability, explicit undefined, and array mutability. Fields can belong to only one group. The runnable example demonstrates all five writes, group error subscriptions, and a readout of the resulting values.
-
-Container slots are checked against the complete generated value shape, including array elements, nested object fields, optional properties, and index signatures. Recursive or otherwise uninspectable slot types are rejected during generation.
-
-## Validation boundaries
-
-Constraints include `required`, reactive `required_if`/`required_unless`/`required_with`/`required_without`, string `minLength`/`maxLength`, numeric `min`/`max`, array `minItems`/`maxItems`, enum options, and format hints. Client checks improve feedback; Laravel remains authoritative for validation and authorization. Email/URL checks are approximate. Date rules, file size/content rules, unique/existence queries, closures, custom rules, and unsupported conditions remain server validation and produce diagnostics.
-
-Draft defaults are empty strings (including enum drafts), zero for numbers, false for booleans, empty arrays/objects, and null for nullable/file fields. Enum draft types include the blank string until selection; option validation rejects it when required.
-
-Required object fields reject empty plain records, matching Laravel's empty associative-array behavior. Conditional presence rules also treat an empty record as absent.
-
-Wildcard rule validation checks every array position, including sparse holes; required child fields reject missing rows. Conditional references such as `contacts.*.enabled` resolve against the concrete row being validated, including nested wildcard keys. Conditional requirements follow Laravel's missing-dependency and boolean-comparison behavior. Rendering repeated fields belongs to an application-owned parent array component using the typed `form.Field`, `form.Subscribe`, and `setFieldValue` APIs; this version does not generate repeaters or bound wildcard child components.
-
-Generation requires rules that can be described without authenticated/live request values. FormRequests are instantiated without running validation or authorization; request-dependent rules may need a dedicated source driver. Registry inspection supports callable components and statically inspectable `withFieldGroup` declarations; complex wrappers may need a framework driver that supplies a manifest.
-
-## Extending drivers
-
-A `SourceDriver<E, R>` returns an Effect producing the versioned portable `Extraction` contract: schemas and diagnostics. Its optional artifact preparation also returns an Effect. Laravel's scoped subprocess integration extracts schemas and prepares PHP enums; `formbraid:export` has no route flag or HTTP dependency. `ExtractionSchema` and `parseExtractionEffect` decode external metadata with native Effect Schema failures; synchronous parse helpers execute the same decoder at compiler boundaries.
-
-An `OperationProvider<TBinding, E, R>` associates a source's schema IDs with named operations, parameters and typed transport bindings through an Effect. Laravel's `app.http()` invokes the separate `formbraid:http` provider. Inertia's generator consumes this portable HTTP capability; its runtime has no Laravel dependency. `defineSubmission`, `defineConfig`, and `generate` preserve provider errors and required services. `generate(config, options)` returns an Effect requiring filesystem services plus the configured providers' services; the CLI supplies native Node services and runs the workflow with `NodeRuntime.runMain`.
-
-Use `defineSubmission({ bindings, imports, emitBinding })` to adapt another operation provider into generated actions. `emitBinding` generates the runtime binding expression. A runtime `SubmissionDriver` receives the parsed form data, portable JSON binding, abort signal and optional progress callback, then returns an Effect producing a `SubmissionResult`. Effects can be interrupted through session cancellation; asynchronous drivers should implement abort cleanup. `defineSubmissionDriver({ accepts, submit })` validates bindings and exposes a typed executor. For a mutation transport such as Zero, bindings can identify a mutation and its context; the executor maps values/context into mutation arguments and waits for server acceptance before returning success. A production Zero adapter is not included.
-
-Multiple sources use `sources: { app, external }`; their schemas appear under `forms/app` and `forms/external`. Multiple submission integrations use `submissions: { web, mutations }`; actions appear under `actions/web` and `actions/mutations`. A single source or submission keeps flat output paths. Reuse the registered source instance in each operation provider. Unknown schema associations, conflicting artifacts and duplicate operation names are generation errors.
-
-Generation synchronizes files marked `// Generated by Formbraid.` within the configured form/action output directories and preserves application-owned files. Check mode detects obsolete files without deleting them. Configurations should own separate output directories.
+`.agents/setup` prepares the orb toolchain, dependencies, and library builds; `.agents/resume` checks readiness without reinstalling. Setup does not build docs, start servers, or authenticate deployment services. See [development](apps/docs/content/docs/0.x/development.mdx) for documentation commands.

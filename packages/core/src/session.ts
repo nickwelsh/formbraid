@@ -18,9 +18,7 @@ import type {
     FieldDefinition,
     FormDefinition,
     GroupDefinition,
-    JsonValue,
     Schema,
-    SubmissionDriver,
     SubmissionCallback,
     SubmissionCallbackContext,
     SubmissionResult,
@@ -173,8 +171,6 @@ interface SessionOptionsBase<
     readonly schema?: Schema<TValues, TOutput, TSchemaServices>;
     readonly operation?: FormOperation<TOutput, TSuccess, TError, TServices>;
     readonly submit?: SubmissionCallback<TOutput, TSuccess, TError>;
-    readonly driver?: SubmissionDriver;
-    readonly binding?: JsonValue;
     readonly onResult?: (result: SubmissionResult<NoInfer<TSuccess>, NoInfer<TError>>) => void;
 }
 export type SessionOptions<
@@ -745,7 +741,7 @@ export function createFormSession<
             let result: SubmissionResult<TSuccess, TError>;
             let errors: Readonly<Record<string, ReadonlyArray<string>>> = {};
             try {
-                // Prepare owned messages before detaching so malformed driver results cannot strand waiters.
+                // Prepare owned messages before detaching so malformed callback results cannot strand waiters.
                 result = ownExecution(incoming) as SubmissionResult<TSuccess, TError>;
                 if (result.status === 'invalid') {
                     errors = filterErrors(result.errors);
@@ -851,21 +847,7 @@ export function createFormSession<
             if (submit !== undefined) {
                 return yield* Effect.promise(async () => await submit(validated.success as TOutput, context));
             }
-            const { driver } = capturedOptions;
-            if (driver !== undefined) {
-                const data = validated.success;
-                if (typeof data !== 'object' || data === null) {
-                    return yield* Effect.die(new Error('Submission drivers require an object schema output.'));
-                }
-                return yield* Effect.suspend(() =>
-                    driver.submit({
-                        data,
-                        binding: capturedOptions.binding ?? null,
-                        ...context,
-                    }),
-                ) as Effect.Effect<SubmissionResult<TSuccess, TError>>;
-            }
-            return yield* Effect.die(new Error('No form operation or submission driver configured.'));
+            return yield* Effect.die(new Error('No form operation or submit callback configured.'));
         });
         // The session scope owns one native execution fiber. Service runners are boundary adapters only.
         try {

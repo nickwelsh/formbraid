@@ -1,12 +1,11 @@
 import type {
-    BoundForm,
     Constraints,
     FieldDefinition,
     FormDefinition,
     FormDescriptor,
     FormOperation,
     GroupDefinition,
-    SubmissionDriver,
+    SubmissionCallback,
     SubmissionResult,
     UploadProgress,
     SessionOptions,
@@ -55,7 +54,7 @@ export type FormOptions<
 > = Pick<SessionOptions<TValues, TOutput, TSuccess, TError, TServices, TSchemaServices>, 'run'> & {
     readonly operation?: FormOperation<TOutput, TSuccess, TError, TServices>;
     readonly defaultValues?: TValues;
-    readonly submission?: SubmissionDriver;
+    readonly submit?: SubmissionCallback<TOutput, TSuccess, TError>;
     readonly onResult?: (result: SubmissionResult<NoInfer<TSuccess>, NoInfer<TError>>) => void;
     readonly onProgress?: (progress: UploadProgress) => void;
 };
@@ -86,7 +85,6 @@ export interface UseForm {
     >(
         input:
             | FormDefinition<TValues, TFields, TGroups, TOutput>
-            | BoundForm<FormDefinition<TValues, TFields, TGroups, TOutput>>
             | FormDescriptor<TValues, TFields, TGroups, TOutput, TSuccess, TError>,
     ): FormInstance<TValues, TFields, TGroups, TOutput, TSuccess, TError>;
     <
@@ -101,7 +99,6 @@ export interface UseForm {
     >(
         input:
             | FormDefinition<TValues, TFields, TGroups, TOutput, TSchemaServices>
-            | BoundForm<FormDefinition<TValues, TFields, TGroups, TOutput, TSchemaServices>>
             | FormDescriptor<TValues, TFields, TGroups, TOutput, TSuccess, TError, TSchemaServices>,
         options: FormOptions<TValues, TOutput, TSuccess, TError, TServices, TSchemaServices>,
     ): FormInstance<TValues, TFields, TGroups, TOutput, TSuccess, TError, TServices, TSchemaServices>;
@@ -176,7 +173,6 @@ export type FormProps<
 } & (
         | (FormOptions<TValues, TOutput, TSuccess, TError, TServices, TSchemaServices> & {
               readonly form:
-                  | BoundForm<FormDefinition<TValues, TFields, TGroups, TOutput, TSchemaServices>>
                   | FormDescriptor<TValues, TFields, TGroups, TOutput, TSuccess, TError, TSchemaServices>
                   | FormDefinition<TValues, TFields, TGroups, TOutput, TSchemaServices>;
           })

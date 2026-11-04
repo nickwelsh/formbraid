@@ -50,7 +50,7 @@ export default {
                 rules: { 'typescript/no-unsafe-type-assertion': 'off' },
             },
             {
-                files: ['packages/inertia/src/driver.ts', '**/*.test.tsx'],
+                files: ['**/*.test.tsx'],
                 // Callback transports and controlled test gates require a promise adapter.
                 rules: { 'promise/avoid-new': 'off' },
             },
@@ -60,7 +60,6 @@ export default {
                     'packages/generator/**',
                     'scripts/**',
                     'benchmarks/**',
-                    'packages/laravel/js/**',
                     'apps/docs/*.ts',
                     '**/generator.ts',
                     '**/vite.config.ts',
@@ -333,15 +332,7 @@ export default {
         alias: {
             '@formbraid/example': fileURLToPath(new URL('examples/react/src', import.meta.url)),
             '@formbraid/core/vite': fileURLToPath(new URL('packages/core/src/vite.ts', import.meta.url)),
-            '@formbraid/laravel/generator': fileURLToPath(new URL('packages/laravel/js/generator.ts', import.meta.url)),
-            '@formbraid/react/generator': fileURLToPath(new URL('packages/react/src/generator.ts', import.meta.url)),
-            '@formbraid/inertia/generator': fileURLToPath(
-                new URL('packages/inertia/src/generator.ts', import.meta.url),
-            ),
-            '@formbraid/generator/react': fileURLToPath(new URL('packages/generator/src/react.ts', import.meta.url)),
             '@formbraid/generator': fileURLToPath(new URL('packages/generator/src/index.ts', import.meta.url)),
-            '@formbraid/inertia/effect': fileURLToPath(new URL('packages/inertia/src/effect.ts', import.meta.url)),
-            '@formbraid/inertia': fileURLToPath(new URL('packages/inertia/src/index.ts', import.meta.url)),
             '@formbraid/react': fileURLToPath(new URL('packages/react/src/index.ts', import.meta.url)),
             '@formbraid/core': fileURLToPath(new URL('packages/core/src/index.ts', import.meta.url)),
         },

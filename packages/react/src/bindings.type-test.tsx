@@ -1,15 +1,18 @@
 /* oxlint-disable eslint/new-cap -- Effect uses capitalized functional Schema and Context constructors. */
 /* oxlint-disable unicorn/no-array-method-this-argument -- The reusable group render property is a React renderer. */
-import { Form } from '@formbraid/example/forms.js';
-import { update } from '@formbraid/example/generated/actions/profile.js';
+import { fieldComponents } from '@formbraid/example/field-components.js';
+import { formComponents } from '@formbraid/example/form-components.js';
+import { fieldGroups } from '@formbraid/example/address-group.js';
+import { UpdateProfileRequest } from './__fixtures__/profile.js';
 import { Context, Effect, Schema as EffectSchema, SchemaGetter } from 'effect';
-import { bindForm, defineForm } from '@formbraid/core';
+import { defineForm } from '@formbraid/core';
 import type { SubmissionResult } from '@formbraid/core';
 import { createFormbraid } from './create-formbraid.js';
 import { withFieldGroup } from './group.js';
 import type { FieldProps } from './types.js';
 
 const runtime = createFormbraid({ fieldComponents: {}, formComponents: {} });
+const { Form } = createFormbraid({ fieldComponents, formComponents, fieldGroups });
 const typedDefinition = defineForm<{ count: string }, { count: number }>()({
     id: 'typed-react',
     defaultValues: { count: '0' },
@@ -57,7 +60,11 @@ const serviceDefinition = defineForm<{ count: string }, { count: string }>()({
     groups: {},
     schema: serviceSchema,
 });
-const boundServiceDefinition = bindForm(serviceDefinition, { driver: 'native', binding: null });
+const serviceDescriptor = {
+    version: 1 as const,
+    definition: serviceDefinition,
+    submission: { submit: (): SubmissionResult => ({ status: 'success' }) },
+};
 const group = withFieldGroup({ defaultValues: { local: '' }, props: {}, render: () => null });
 const numericGroup = withFieldGroup({
     defaultValues: { 0: '' },
@@ -234,11 +241,11 @@ export function SessionTypeProof() {
         // @ts-expect-error Supplying operation services alone does not supply the native decoder's services.
         run: Effect.runPromiseWith(Context.make(Save, { save: () => Effect.succeed('saved') })),
     });
-    // @ts-expect-error Binding a definition preserves its decoder service requirement.
-    runtime.useForm(boundServiceDefinition);
-    // @ts-expect-error Bound forms cannot omit the decoder's runner.
-    const missingBoundRunner = <runtime.Form form={boundServiceDefinition}>{() => null}</runtime.Form>;
-    const boundDecoder = runtime.useForm(boundServiceDefinition, {
+    // @ts-expect-error Descriptors preserve the definition's decoder service requirement.
+    runtime.useForm(serviceDescriptor);
+    // @ts-expect-error Descriptors cannot omit the decoder's runner.
+    const missingBoundRunner = <runtime.Form form={serviceDescriptor}>{() => null}</runtime.Form>;
+    const boundDecoder = runtime.useForm(serviceDescriptor, {
         run: Effect.runPromiseWith(Context.make(Decode, { prefix: 'decoded:' })),
     });
     void [decoderInstance, missingDecoderRunner, missingBoundRunner, boundDecoder];
@@ -303,14 +310,8 @@ export function RootArrayBindingTypeProof() {
 
 /** Compiled by the strict root project; never executed as a runtime test. */
 export function BindingTypeProof() {
-    // @ts-expect-error Laravel route parameters retain their exact names.
-    const wrongRoute = update.form({ usr: 1 });
-    // @ts-expect-error Required route parameters cannot be omitted.
-    const missingRoute = update.form({});
-    void wrongRoute;
-    void missingRoute;
     return (
-        <Form form={update.form({ user: 1 })}>
+        <Form form={UpdateProfileRequest}>
             {({ fields, components, groups }) => {
                 // @ts-expect-error Unknown fields cannot be rendered.
                 const unknownField = <fields.emali />;

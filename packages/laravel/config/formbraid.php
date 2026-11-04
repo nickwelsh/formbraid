@@ -10,14 +10,9 @@ return [
     'component_enum' => 'app/Formbraid/FormField.php',
     // Any class implementing Formbraid\Laravel\Contracts\SubmissionDriver may be resolved through the container.
     'submission_driver' => Fetch::class,
-    'enums' => [
-        'fields' => 'App\\Enums\\FormField',
-        'components' => 'App\\Enums\\FormComponent',
-        'groups' => 'App\\Enums\\FormGroup',
-    ],
     'profiles' => [],
     'fields' => [
-        // Replace these strings with your generated App\Enums\FormField cases.
+        // Strings bootstrap the first metadata pass; generated App\Formbraid\FormField cases work too.
         'types' => [
             'string' => 'TextField',
             'integer' => 'NumberField',

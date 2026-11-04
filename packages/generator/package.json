@@ -1,7 +1,7 @@
 {
     "name": "@formbraid/generator",
     "version": "0.1.0",
-    "description": "Generate application-owned forms from portable source definitions.",
+    "description": "Optional build-time contracts and component inspection for Formbraid producer authors.",
     "homepage": "https://docs.nickwelsh.me/formbraid/",
     "bugs": {
         "url": "https://github.com/nickwelsh/formbraid/issues"
@@ -12,9 +12,6 @@
         "url": "git+https://github.com/nickwelsh/formbraid.git",
         "directory": "packages/generator"
     },
-    "bin": {
-        "formbraid": "./dist/cli.js"
-    },
     "files": [
         "dist"
     ],
@@ -23,10 +20,6 @@
         ".": {
             "types": "./dist/index.d.ts",
             "import": "./dist/index.js"
-        },
-        "./react": {
-            "types": "./dist/react.d.ts",
-            "import": "./dist/react.js"
         }
     },
     "publishConfig": {
@@ -36,12 +29,7 @@
         "build": "vp pack"
     },
     "dependencies": {
-        "@effect/platform-node": "4.0.2",
-        "@formbraid/core": "workspace:*",
-        "effect": "4.0.2",
-        "jiti": "^2.6.1",
-        "oxfmt": "^0.67.0",
-        "typescript-api": "npm:typescript@^5.9.3"
+        "@formbraid/core": "workspace:*"
     },
     "engines": {
         "node": ">=24.11.0"

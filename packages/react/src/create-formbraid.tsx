@@ -1,12 +1,10 @@
 import { createFormSession } from '@formbraid/core';
 import type {
-    BoundForm,
     FieldDefinition,
     FormDefinition,
     FormDescriptor,
     GroupDefinition,
     SessionOptions,
-    SubmissionDriver,
     UploadProgress,
 } from '@formbraid/core';
 import { createElement, useInsertionEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -26,26 +24,6 @@ function notify<T>(callback: (value: T) => void, value: T): void {
     }
 }
 
-function descriptorDriver(
-    descriptor: {
-        readonly version?: unknown;
-        readonly submission: { readonly driver?: unknown; readonly submit?: unknown };
-    },
-    drivers: Readonly<Record<string, SubmissionDriver>> | undefined,
-): SubmissionDriver | undefined {
-    if (descriptor.version !== undefined && descriptor.version !== 1) {
-        throw new Error('Unsupported Formbraid form descriptor version.');
-    }
-    const { driver, submit } = descriptor.submission;
-    if (submit !== undefined && driver !== undefined) {
-        throw new Error('A form submission must provide either a driver or a callback.');
-    }
-    if (typeof driver !== 'string' || drivers === undefined || !Object.hasOwn(drivers, driver)) {
-        return undefined;
-    }
-    return drivers[driver];
-}
-
 function resolveForm<
     TValues extends object,
     TFields extends Readonly<Record<string, FieldDefinition>>,
@@ -58,22 +36,22 @@ function resolveForm<
 >(
     input:
         | FormDefinition<TValues, TFields, TGroups, TOutput, TSchemaServices>
-        | BoundForm<FormDefinition<TValues, TFields, TGroups, TOutput, TSchemaServices>>
         | FormDescriptor<TValues, TFields, TGroups, TOutput, TSuccess, TError, TSchemaServices>,
     options: Partial<FormOptions<TValues, TOutput, TSuccess, TError, TServices, TSchemaServices>>,
-    drivers: Readonly<Record<string, SubmissionDriver>> | undefined,
 ): SessionOptions<TValues, TOutput, TSuccess, TError, TServices, TSchemaServices> & {
     readonly definition: FormDefinition<TValues, TFields, TGroups, TOutput, TSchemaServices>;
 } {
     const bound = 'definition' in input ? input : undefined;
     const definition = 'definition' in input ? input.definition : input;
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- Untyped producers can supply unsupported descriptor versions.
+    if (bound !== undefined && bound.version !== 1) {
+        throw new Error('Unsupported Formbraid form descriptor version.');
+    }
     const submission = bound?.submission;
-    const registeredDriver = bound === undefined ? undefined : descriptorDriver(bound, drivers);
-    const driver = options.submission ?? registeredDriver;
     const defaults =
         options.defaultValues ?? (bound !== undefined && 'defaultValues' in bound ? bound.defaultValues : undefined);
     // Explicit per-form executors replace the descriptor's submission strategy.
-    const submit = options.operation === undefined && options.submission === undefined ? submission?.submit : undefined;
+    const submit = options.submit ?? (options.operation === undefined ? submission?.submit : undefined);
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Public options retain the conditional runner requirement; rebuilding optional keys preserves it.
     return {
         definition,
@@ -81,8 +59,6 @@ function resolveForm<
         ...(options.operation === undefined ? {} : { operation: options.operation }),
         ...(submit === undefined ? {} : { submit }),
         ...(options.run === undefined ? {} : { run: options.run }),
-        ...(submission?.binding === undefined ? {} : { binding: submission.binding }),
-        ...(driver === undefined ? {} : { driver }),
     } as SessionOptions<TValues, TOutput, TSuccess, TError, TServices, TSchemaServices> & {
         readonly definition: FormDefinition<TValues, TFields, TGroups, TOutput, TSchemaServices>;
     };
@@ -96,7 +72,6 @@ export interface FormbraidOptions<
     readonly fieldComponents: TFields;
     readonly formComponents: TComponents;
     readonly fieldGroups?: TGroups;
-    readonly submissions?: Readonly<Record<string, SubmissionDriver>>;
     readonly submitComponent?: keyof TComponents & string;
 }
 
@@ -146,11 +121,10 @@ export function createFormbraid<
     >(
         input:
             | FormDefinition<TValues, TFields, TGroups, TOutput, TSchemaServices>
-            | BoundForm<FormDefinition<TValues, TFields, TGroups, TOutput, TSchemaServices>>
             | FormDescriptor<TValues, TFields, TGroups, TOutput, TSuccess, TError, TSchemaServices>,
         options: Partial<FormOptions<TValues, TOutput, TSuccess, TError, TServices, TSchemaServices>> = {},
     ): FormInstance<TValues, TFields, TGroups, TOutput, TSuccess, TError, TServices, TSchemaServices> {
-        const sessionOptions = resolveForm(input, options, config.submissions);
+        const sessionOptions = resolveForm(input, options);
         const { definition } = sessionOptions;
         // oxlint-disable-next-line react/hook-use-state -- Sessions are constructed once; their own subscriptions publish state.
         const [session] = useState(() => createFormSession(sessionOptions));
@@ -266,7 +240,7 @@ export function createFormbraid<
             form: _source,
             children,
             defaultValues: _defaults,
-            submission: _submission,
+            submit: _submit,
             onResult: _result,
             onProgress: _progress,
             operation: _operation,
@@ -341,7 +315,6 @@ export function createFormbraid<
         > & {
             readonly form:
                 | FormDefinition<TValues, TFields, TGroups, TOutput, TSchemaServices>
-                | BoundForm<FormDefinition<TValues, TFields, TGroups, TOutput, TSchemaServices>>
                 | FormDescriptor<TValues, TFields, TGroups, TOutput, TSuccess, TError, TSchemaServices>;
         },
     ): ReactNode {

@@ -56,7 +56,7 @@ if (result.status === 'failure') console.log(result.error.message);
 session.dispose();
 ```
 
-Schema decoder services are inferred from the definition and retained through `bindForm` and React bindings. The runner must provide the services required by both decoding and the operation; TypeScript rejects a missing or insufficient runner.
+Schema decoder services are inferred from the definition and retained through descriptors and React bindings. The runner must provide the services required by both decoding and the operation; TypeScript rejects a missing or insufficient runner.
 
 `submitEffect()` describes a lazy wait for the session's submission and composes with application Effects. `submit()` starts the same work immediately and returns a Promise for event handlers. Concurrent callers of either API share one validation and submission. The session owns the execution fiber and scope, and an optional configured runner supplies application services. Interrupting a waiting fiber leaves the shared execution active. Use `session.cancel()`, `reset()`, or `dispose()` to interrupt the execution for every caller. Effect finalizers release resources on completion and cancellation.
 

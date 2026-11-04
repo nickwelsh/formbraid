@@ -1,17 +1,74 @@
-# @formbraid/laravel
+# formbraid/laravel
 
-Node generator integration for Laravel FormRequests.
-
-```sh
-pnpm add @formbraid/laravel
-```
-
-See the [Formbraid documentation](https://docs.nickwelsh.me/formbraid/) and [source repository](https://github.com/nickwelsh/formbraid).
-
-The Composer package is `formbraid/laravel`:
+The Composer integration for Formbraid. Generate typed forms from Laravel FormRequests and controller routes, using your application's React components. There is no Laravel Node package.
 
 ```sh
 composer require formbraid/laravel
+php artisan formbraid:init --register-vite
 ```
 
-The [formbraid/laravel mirror](https://github.com/formbraid/laravel) is maintained automatically. Please submit changes and issues to the source repository.
+Packages have not yet been published. For local development, configure a Composer path repository pointing to this directory and require `formbraid/laravel:@dev`. The frontend needs `@formbraid/core`, `@formbraid/react`, `effect`, and `react`; no generator SDK or Formbraid Inertia adapter is required.
+
+## Scaffold once; keep editing your files
+
+`php artisan formbraid:init [--register-vite]` creates `index.ts`, `fields.tsx`, `form-components.tsx`, and build-safe `laravel.ts` beside the configured metadata file (by default `resources/js/formbraid/_metadata.json`). `index.ts` uses React's component-only `defineConfig({ components, formComponents, groups?, submitComponent })`. The scaffold is user-owned: rerunning init preserves existing files and edits. Init does not generate placeholder JSON.
+
+The optional Vite registration only modifies a standard literal `defineConfig({ plugins: [...] })`. For complex configs, init prints manual imports and registration:
+
+```ts
+import { vitePlugin as formbraid } from '@formbraid/core/vite';
+import laravelForms from './resources/js/formbraid/laravel';
+
+// Add alongside your existing Vite plugins:
+formbraid({ integrations: [laravelForms] });
+```
+
+The default descriptor points to `./index.ts` and `./_metadata.json`, runs `['php', 'artisan', 'formbraid:generate']`, watches PHP inputs, and excludes generated TypeScript and the enum through `outputs`. It imports no React runtime modules.
+
+## Vite produces metadata; PHP consumes it
+
+Start Vite once. It statically inspects component types without evaluating CSS imports or browser globals, atomically writes metadata, and then runs Artisan. Dev watching follows component imports and PHP patterns, including newly created app module directories; changes coalesce and generated outputs do not retrigger generation.
+
+Standalone `php artisan formbraid:generate` consumes existing JSON only. Missing metadata is an error: start Vite once, do not fabricate the file or expect Artisan to inspect TypeScript.
+
+```php
+// config/formbraid.php
+return [
+    'requests' => ['app/Http/Requests', 'app/Modules/**/Requests/**/*.php'],
+    'metadata' => 'resources/js/formbraid/_metadata.json',
+    'output' => 'resources/js/formbraid/laravel',
+    'component_enum' => 'app/Formbraid/FormField.php',
+    'submission_driver' => Formbraid\Laravel\Drivers\Fetch::class,
+    'fields' => [
+        'types' => ['string' => 'TextField', 'boolean' => 'CheckboxField'],
+        'rules' => [],
+        'fallbackType' => 'string',
+    ],
+];
+```
+
+`requests` accepts directories or PHP glob patterns. `component_enum` is an output path, not a class name. One merged string-backed enum includes fields, form components, and groups, with namespace inferred from Composer PSR-4. Bootstrap with string component mappings; after the first metadata pass use generated cases such as `App\Formbraid\FormField::TextField` in `fields()` and `FormField::AddressAutocomplete` in `groups()`. Clear cached Laravel config after changing it.
+
+## Generated forms
+
+PHP emits namespace-preserving `requests/App/Http/Requests/UpdateProfileRequest.ts` definitions using `defineForm` and `controllers/App/Http/Controllers/ProfileController.ts` exports:
+
+```tsx
+import { Form } from './formbraid';
+import { update } from './formbraid/laravel/controllers/App/Http/Controllers/ProfileController';
+
+<Form form={update({ user: 42 })} />;
+```
+
+Controller functions return `{ version: 1, definition, submission: { submit } }` descriptors directly, not `.form()` helpers. Generated files are hash-owned: edited or unowned output files are refused, not overwritten. Customize scaffold files instead.
+
+## Submission code generation
+
+`Formbraid\Laravel\Contracts\SubmissionDriver::generate(string $endpoint, string $method): string` receives a safe TypeScript endpoint expression and returns a callback expression. This is a PHP generation contract, not a JavaScript runtime registry.
+
+- `Formbraid\Laravel\Drivers\Fetch` emits self-contained Fetch code with same-origin credentials, the live URL-decoded `XSRF-TOKEN` cookie forwarded as `X-XSRF-TOKEN`, multipart/method spoofing, validation error mapping, and abort support.
+- `Formbraid\Laravel\Drivers\Inertia` dynamically imports the existing application's `@inertiajs/react` router. No Formbraid Inertia package or manual CSRF token plumbing is needed.
+
+Callbacks receive validated values and `{ signal, onProgress }`, and return explicit submission results. Local callback overrides and scoped Effect operations remain available. The backend remains authoritative for validation and authorization. `formbraid:export` and `formbraid:http` remain lower-level schema and HTTP inspection commands, not a Node installation workflow.
+
+See the [documentation](https://docs.nickwelsh.me/formbraid/) and [source repository](https://github.com/nickwelsh/formbraid). The [Composer mirror](https://github.com/formbraid/laravel) is maintained automatically; submit changes and issues to the source repository.

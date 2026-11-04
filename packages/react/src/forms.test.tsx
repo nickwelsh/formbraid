@@ -1,8 +1,8 @@
 /* oxlint-disable eslint/new-cap -- Effect Schema uses capitalized functional schema constructors. */
 import { vi, afterEach, describe, expect, it } from 'vite-plus/test';
 
-import { bindForm, defineSubmissionDriver, definitionSchema, isRecord } from '@formbraid/core';
-import type { EffectRunner, SubmissionContext, SubmissionDriver, SubmissionResult } from '@formbraid/core';
+import { definitionSchema } from '@formbraid/core';
+import type { EffectRunner, SubmissionCallback, SubmissionCallbackContext, SubmissionResult } from '@formbraid/core';
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -11,10 +11,8 @@ import { fieldComponents } from '@formbraid/example/field-components.js';
 import { Effect, Schema, SchemaGetter } from 'effect';
 import { formComponents } from '@formbraid/example/form-components.js';
 import { fieldGroups } from '@formbraid/example/address-group.js';
-import { Form } from '@formbraid/example/forms.js';
-import { update } from '@formbraid/example/generated/actions/profile.js';
-import { UpdateProfileRequest } from '@formbraid/example/generated/forms/UpdateProfileRequest.js';
-import type { UpdateProfileRequestValues } from '@formbraid/example/generated/forms/UpdateProfileRequest.js';
+import { UpdateProfileRequest } from './__fixtures__/profile.js';
+import type { UpdateProfileRequestValues } from './__fixtures__/profile.js';
 
 vi.setConfig({ testTimeout: 10_000 });
 
@@ -30,13 +28,12 @@ const validValues: UpdateProfileRequestValues = {
     zip: '02110',
 };
 
-interface MutationBinding {
-    readonly kind: 'mutation';
-    readonly name: string;
-}
-function isMutation(binding: unknown): binding is MutationBinding {
-    return isRecord(binding) && binding['kind'] === 'mutation' && typeof binding['name'] === 'string';
-}
+const { Form } = createFormbraid({ fieldComponents, formComponents, fieldGroups });
+const descriptor = {
+    version: 1 as const,
+    definition: UpdateProfileRequest,
+    submission: { submit: (): SubmissionResult => ({ status: 'success' }) },
+};
 
 describe('bound React forms', () => {
     afterEach(() => {
@@ -45,11 +42,15 @@ describe('bound React forms', () => {
 
     it('renders grouped fields once and updates every mapped address value on selection', async () => {
         expect.hasAssertions();
-        const submit = vi.fn<SubmissionDriver['submit']>().mockReturnValue(Effect.succeed({ status: 'success' }));
+        const signalStates: Array<boolean> = [];
+        const submit = vi.fn<SubmissionCallback<UpdateProfileRequestValues>>((_values, context) => {
+            signalStates.push(context.signal.aborted);
+            return { status: 'success' };
+        });
         render(
             <Form
-                form={update.form({ user: 42 })}
-                submission={{ submit }}
+                form={descriptor}
+                submit={submit}
                 defaultValues={{ ...validValues, address_line_1: '', city: '', state: '', zip: '' }}
             />,
         );
@@ -61,8 +62,8 @@ describe('bound React forms', () => {
         await waitFor(() => {
             expect(submit).toHaveBeenCalledTimes(1);
         });
-        expect(submit.mock.calls[0]?.[0].data).toStrictEqual(validValues);
-        expect(submit.mock.calls[0]?.[0].binding).toStrictEqual({ kind: 'http', url: '/users/42', method: 'patch' });
+        expect(submit.mock.calls[0]?.[0]).toStrictEqual(validValues);
+        expect(signalStates).toStrictEqual([false]);
     });
 
     it('validates only on submit, including edits after a failed submission', async () => {
@@ -73,15 +74,8 @@ describe('bound React forms', () => {
             return await Effect.runPromise(effect, options);
         };
         const definition = { ...UpdateProfileRequest, schema: definitionSchema(UpdateProfileRequest) };
-        const submit = vi.fn<SubmissionDriver['submit']>().mockReturnValue(Effect.succeed({ status: 'success' }));
-        render(
-            <Form
-                form={bindForm(definition, update.form({ user: 42 }).submission)}
-                submission={{ submit }}
-                defaultValues={validValues}
-                run={run}
-            />,
-        );
+        const submit = vi.fn<SubmissionCallback<UpdateProfileRequestValues>>().mockReturnValue({ status: 'success' });
+        render(<Form form={definition} submit={submit} defaultValues={validValues} run={run} />);
         const user = userEvent.setup();
         const email = screen.getByLabelText('Email *');
         await user.clear(email);
@@ -110,8 +104,8 @@ describe('bound React forms', () => {
 
     it('reactively changes required metadata and blocks an incomplete conditional field', async () => {
         expect.hasAssertions();
-        const submit = vi.fn<SubmissionDriver['submit']>().mockReturnValue(Effect.succeed({ status: 'success' }));
-        render(<Form form={update.form({ user: 42 })} submission={{ submit }} defaultValues={validValues} />);
+        const submit = vi.fn<SubmissionCallback<UpdateProfileRequestValues>>().mockReturnValue({ status: 'success' });
+        render(<Form form={descriptor} submit={submit} defaultValues={validValues} />);
         const user = userEvent.setup();
         const company = screen.getByLabelText('Company');
         expect(company.getAttribute('aria-required')).toBe('false');
@@ -124,14 +118,12 @@ describe('bound React forms', () => {
 
     it('preserves edits and focus when definitions and default props are recreated', async () => {
         expect.hasAssertions();
-        const view = render(<Form form={update.form({ user: 42 })} defaultValues={validValues} />);
+        const view = render(<Form form={descriptor} defaultValues={validValues} />);
         const user = userEvent.setup();
         const input = screen.getByLabelText('Name *');
         await user.clear(input);
         await user.type(input, 'Edited');
-        view.rerender(
-            <Form form={update.form({ user: 42 })} defaultValues={{ ...validValues, name: 'Replacement' }} />,
-        );
+        view.rerender(<Form form={{ ...descriptor }} defaultValues={{ ...validValues, name: 'Replacement' }} />);
         expect(screen.getByLabelText('Name *')).toBe(input);
         expect(input).toBe(document.activeElement);
         expect(input.getAttribute('value')).toBe('Edited');
@@ -140,7 +132,7 @@ describe('bound React forms', () => {
     it('custom layouts render only explicitly placed fields and expose registered form components', () => {
         expect.hasAssertions();
         render(
-            <Form form={update.form({ user: 42 })}>
+            <Form form={descriptor}>
                 {({ fields, components }) => (
                     <>
                         <fields.email label="Contact Email" />
@@ -158,21 +150,12 @@ describe('bound React forms', () => {
     it('keeps separate mounted instances isolated and maps server errors into group fields', async () => {
         expect.hasAssertions();
         const submit = vi
-            .fn<SubmissionDriver['submit']>()
-            .mockReturnValue(Effect.succeed({ status: 'invalid', errors: { city: 'Choose a supported city.' } }));
+            .fn<SubmissionCallback<UpdateProfileRequestValues>>()
+            .mockReturnValue({ status: 'invalid', errors: { city: 'Choose a supported city.' } });
         const view = render(
             <>
-                <Form
-                    aria-label="First"
-                    form={update.form({ user: 1 })}
-                    submission={{ submit }}
-                    defaultValues={validValues}
-                />
-                <Form
-                    aria-label="Second"
-                    form={update.form({ user: 2 })}
-                    defaultValues={{ ...validValues, name: 'Other' }}
-                />
+                <Form aria-label="First" form={descriptor} submit={submit} defaultValues={validValues} />
+                <Form aria-label="Second" form={descriptor} defaultValues={{ ...validValues, name: 'Other' }} />
             </>,
         );
         const first = within(view.getByRole('form', { name: 'First' }));
@@ -189,7 +172,7 @@ describe('bound React forms', () => {
 
     it('submits transformed schema output rather than the draft', async () => {
         expect.hasAssertions();
-        const submit = vi.fn<SubmissionDriver['submit']>().mockReturnValue(Effect.succeed({ status: 'success' }));
+        const submit = vi.fn<SubmissionCallback<{ email: string }>>().mockReturnValue({ status: 'success' });
         const definition = {
             ...UpdateProfileRequest,
             schema: definitionSchema(UpdateProfileRequest).pipe(
@@ -199,63 +182,51 @@ describe('bound React forms', () => {
                 }),
             ),
         };
-        render(
-            <Form
-                form={bindForm(definition, {
-                    driver: 'web',
-                    binding: { kind: 'http', url: '/users/42', method: 'patch' },
-                })}
-                defaultValues={validValues}
-                submission={{ submit }}
-            />,
-        );
+        render(<Form form={definition} defaultValues={validValues} submit={submit} />);
         await userEvent.setup().click(screen.getByRole('button', { name: 'Save' }));
         await waitFor(() => {
             expect(submit).toHaveBeenCalledTimes(1);
         });
-        expect(submit.mock.calls[0]?.[0].data).toStrictEqual({ email: 'parsed@example.com' });
+        expect(submit.mock.calls[0]?.[0]).toStrictEqual({ email: 'parsed@example.com' });
     });
 
-    it('selects named executors for the same schema and awaits non-HTTP server acceptance', async () => {
+    it('selects per-form callbacks for the same schema and awaits non-HTTP server acceptance', async () => {
         expect.hasAssertions();
         const pending: { complete?: (result: SubmissionResult) => void } = {};
-        const webSubmit = vi.fn<SubmissionDriver['submit']>().mockReturnValue(Effect.succeed({ status: 'success' }));
-        const mutationSubmit = vi.fn<
-            (
-                context: Omit<SubmissionContext, 'binding'> & { binding: MutationBinding },
-            ) => Effect.Effect<SubmissionResult>
-        >((_context) =>
-            Effect.promise(
-                async () =>
-                    await new Promise<SubmissionResult>((resolve) => {
-                        pending.complete = resolve;
-                    }),
-            ),
+        const webSubmit = vi
+            .fn<SubmissionCallback<UpdateProfileRequestValues>>()
+            .mockReturnValue({ status: 'success' });
+        const mutationSubmit = vi.fn<SubmissionCallback<UpdateProfileRequestValues>>(
+            async () =>
+                await new Promise<SubmissionResult>((resolve) => {
+                    pending.complete = resolve;
+                }),
         );
         const local = createFormbraid({
             fieldComponents,
             formComponents,
             fieldGroups,
-            submissions: {
-                web: { submit: webSubmit },
-                mutations: defineSubmissionDriver({
-                    accepts: isMutation,
-                    submit: mutationSubmit,
-                }),
-            },
         });
         const onResult = vi.fn<(result: SubmissionResult) => void>();
-        const bound = bindForm(UpdateProfileRequest, {
-            driver: 'mutations',
-            binding: { kind: 'mutation', name: 'profile.update' },
-        });
-        render(<local.Form form={bound} defaultValues={validValues} onResult={onResult} />);
-        await userEvent.setup().click(screen.getByRole('button', { name: 'Save' }));
+        const bound = { ...descriptor, submission: { submit: mutationSubmit } };
+        const view = render(
+            <>
+                <local.Form
+                    aria-label="Web"
+                    form={{ ...descriptor, submission: { submit: webSubmit } }}
+                    defaultValues={validValues}
+                />
+                <local.Form aria-label="Mutation" form={bound} defaultValues={validValues} onResult={onResult} />
+            </>,
+        );
+        await userEvent
+            .setup()
+            .click(within(view.getByRole('form', { name: 'Mutation' })).getByRole('button', { name: 'Save' }));
         await waitFor(() => {
             expect(mutationSubmit).toHaveBeenCalledTimes(1);
         });
         expect(webSubmit).not.toHaveBeenCalled();
-        expect(mutationSubmit.mock.calls[0]?.[0].binding).toStrictEqual({ kind: 'mutation', name: 'profile.update' });
+        expect(mutationSubmit.mock.calls[0]?.[0]).toStrictEqual(validValues);
         expect(screen.getByRole('button', { name: 'Saving…' }).hasAttribute('disabled')).toBe(true);
         expect(onResult).not.toHaveBeenCalled();
         pending.complete?.({ status: 'invalid', errors: { email: 'Rejected by the server.' } });
@@ -265,48 +236,27 @@ describe('bound React forms', () => {
         expect(screen.getByRole('alert').textContent).toBe('Rejected by the server.');
     });
 
-    it('reports missing named executors and rejects unsupported bindings', async () => {
+    it('reports a missing submit callback as a defect', async () => {
         expect.hasAssertions();
         const onResult = vi.fn<(result: SubmissionResult) => void>();
-        render(
-            <Form
-                form={bindForm(UpdateProfileRequest, { driver: 'toString', binding: { kind: 'mutation' } })}
-                defaultValues={validValues}
-                onResult={onResult}
-            />,
-        );
+        render(<Form form={UpdateProfileRequest} defaultValues={validValues} onResult={onResult} />);
         await userEvent.setup().click(screen.getByRole('button', { name: 'Save' }));
         await waitFor(() => {
             expect(onResult).toHaveBeenCalledTimes(1);
         });
         expect(onResult.mock.calls[0]?.[0]).toMatchObject({ status: 'defect' });
-        const submit = vi.fn<SubmissionDriver['submit']>();
-        const driver = defineSubmissionDriver({
-            accepts: (_binding): _binding is string => typeof _binding === 'string',
-            submit,
-        });
-        const { signal } = new AbortController();
-        await expect(Effect.runPromise(driver.submit({ binding: {}, data: {}, signal }))).resolves.toMatchObject({
-            status: 'failure',
-        });
-        expect(submit).not.toHaveBeenCalled();
     });
 
-    it('keeps submission state active and aborts the pending driver when unmounted', async () => {
+    it('keeps submission state active and aborts the pending callback when unmounted', async () => {
         expect.hasAssertions();
-        const pending: { context?: SubmissionContext; complete?: (result: SubmissionResult) => void } = {};
-        const submission: SubmissionDriver = {
-            submit: (next) =>
-                Effect.promise(async () => {
-                    pending.context = next;
-                    return await new Promise<SubmissionResult>((resolve) => {
-                        pending.complete = resolve;
-                    });
-                }),
+        const pending: { context?: SubmissionCallbackContext; complete?: (result: SubmissionResult) => void } = {};
+        const submit: SubmissionCallback<UpdateProfileRequestValues> = async (_values, next) => {
+            pending.context = next;
+            return await new Promise<SubmissionResult>((resolve) => {
+                pending.complete = resolve;
+            });
         };
-        const view = render(
-            <Form form={update.form({ user: 42 })} defaultValues={validValues} submission={submission} />,
-        );
+        const view = render(<Form form={descriptor} defaultValues={validValues} submit={submit} />);
         await userEvent.setup().click(screen.getByRole('button', { name: 'Save' }));
         await waitFor(() => {
             expect(screen.getByRole('button', { name: 'Saving…' }).hasAttribute('disabled')).toBe(true);

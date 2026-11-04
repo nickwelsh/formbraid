@@ -1,10 +1,10 @@
 /* oxlint-disable eslint/new-cap -- Effect uses capitalized functional Schema and Context constructors. */
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { bindForm, defineForm } from '@formbraid/core';
+import { defineForm } from '@formbraid/core';
 import type {
     FieldDefinition,
     OperationContext,
-    SubmissionContext,
+    SubmissionCallbackContext,
     SubmissionResult,
     UploadProgress,
 } from '@formbraid/core';
@@ -320,10 +320,10 @@ describe('owned React session lifecycle', () => {
         expect(progress.mock.calls).toStrictEqual([[{ loaded: 1, total: 1 }]]);
     });
 
-    it('uses the committed schema, runner and transport binding in child layout submissions', async () => {
+    it('uses the committed schema, runner and callback closure in child layout submissions', async () => {
         expect.hasAssertions();
         const Decode = Context.Service<{ prefix: string }>('react/CommittedDecode');
-        const submitted = vi.fn<(context: SubmissionContext) => void>();
+        const submitted = vi.fn<(revision: number, values: typeof definition.defaultValues) => void>();
         const pending: Array<Promise<SubmissionResult>> = [];
         function AutoSubmit({ revision }: { readonly revision: number }) {
             const form = useFormContext();
@@ -347,13 +347,11 @@ describe('owned React session lifecycle', () => {
         };
         function Harness({ revision }: { readonly revision: number }) {
             const nativeDefinition = nativeDefinitionFor(revision);
-            const instance = local.useForm(bindForm(nativeDefinition, { driver: 'test', binding: revision }), {
+            const instance = local.useForm(nativeDefinition, {
                 run: Effect.runPromiseWith(Context.make(Decode, { prefix: `runner${revision}` })),
-                submission: {
-                    submit: (context) => {
-                        submitted(context);
-                        return Effect.succeed({ status: 'success' });
-                    },
+                submit: (values) => {
+                    submitted(revision, values);
+                    return { status: 'success' };
                 },
             });
             return (
@@ -366,17 +364,13 @@ describe('owned React session lifecycle', () => {
         await act(async () => {
             await pending.at(-1);
         });
-        expect(submitted).toHaveBeenLastCalledWith(
-            expect.objectContaining({ binding: 1, data: { first: 'runner1-1-', second: '' } }),
-        );
+        expect(submitted).toHaveBeenLastCalledWith(1, { first: 'runner1-1-', second: '' });
         view.rerender(<Harness revision={2} />);
         await act(async () => {
             await pending.at(-1);
         });
         expect(submitted).toHaveBeenCalledTimes(2);
-        expect(submitted).toHaveBeenLastCalledWith(
-            expect.objectContaining({ binding: 2, data: { first: 'runner2-2-', second: '' } }),
-        );
+        expect(submitted).toHaveBeenLastCalledWith(2, { first: 'runner2-2-', second: '' });
     });
 
     it('keeps suspended render options out of the committed session', async () => {
@@ -793,20 +787,17 @@ describe('owned React session lifecycle', () => {
 
     it('cancels an unmounted operation and suppresses late results', async () => {
         expect.hasAssertions();
-        const active: { context?: SubmissionContext; finish?: (value: SubmissionResult) => void } = {};
+        const active: { context?: SubmissionCallbackContext; finish?: (value: SubmissionResult) => void } = {};
         const result = vi.fn<(value: SubmissionResult) => void>();
         const local = createFormbraid({ fieldComponents: {}, formComponents: {} });
         const holder: { submit?: () => Promise<SubmissionResult> } = {};
         function Harness() {
-            const instance = local.useForm(bindForm(definition, { driver: 'test', binding: null }), {
-                submission: {
-                    submit: (context) =>
-                        Effect.promise(async () => {
-                            active.context = context;
-                            return await new Promise<SubmissionResult>((resolve) => {
-                                active.finish = resolve;
-                            });
-                        }),
+            const instance = local.useForm(definition, {
+                submit: async (_values, context) => {
+                    active.context = context;
+                    return await new Promise<SubmissionResult>((resolve) => {
+                        active.finish = resolve;
+                    });
                 },
                 onResult: result,
             });
@@ -868,18 +859,15 @@ describe('owned React session lifecycle', () => {
         // A reusable group is also usable directly with an owned form instance.
         const Group = group;
         function View() {
-            const instance = local.useForm(bindForm(definition, { driver: 'test', binding: null }), {
-                submission: {
-                    submit: () =>
-                        Effect.succeed({
-                            status: 'invalid',
-                            errors: {
-                                first: 'Local error',
-                                second: 'Outside the group',
-                                '': 'Form error',
-                            },
-                        }),
-                },
+            const instance = local.useForm(definition, {
+                submit: () => ({
+                    status: 'invalid',
+                    errors: {
+                        first: 'Local error',
+                        second: 'Outside the group',
+                        '': 'Form error',
+                    },
+                }),
             });
             useLayoutEffect(() => {
                 holder.submit = instance.form.handleSubmit;

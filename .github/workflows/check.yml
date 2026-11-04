@@ -37,7 +37,13 @@ jobs:
       - run: pnpm exec vp check
       - run: pnpm exec tsc --noEmit
       - run: pnpm exec vp test run
-      - run: node packages/generator/dist/cli.js generate --config examples/react/formbraid.config.ts --check
+      - name: Check generated Laravel example is current
+        run: |
+          status=$(git status --porcelain -- examples/react/src/generated examples/react/php/Enums)
+          if [ -n "$status" ]; then
+            printf '%s\n' "$status"
+            exit 1
+          fi
       - run: pnpm packages:pack
       - run: pnpm packages:check
         env:

@@ -9,10 +9,10 @@ Install the local Composer package into a Laravel app using a Composer path repo
 php artisan vendor:publish --tag=formbraid-config
 ```
 
-Map rule-inferred value types to your generated enum:
+Bootstrap with string component mappings until Vite has produced metadata and PHP has generated the merged enum. After that first pass, map rule-inferred value types to its cases:
 
 ```php
-use App\Enums\FormField;
+use App\Formbraid\FormField;
 
 return [
     'requests' => ['app/Http/Requests'],
@@ -64,4 +64,4 @@ public function fields(): array
 }
 ```
 
-Props must be JSON values. Generation checks supplied props against the application's component types and rejects unknown components, unknown props, invalid values, and missing required props.
+Props must be JSON values. Generation checks supplied props against the application's component types and rejects unknown components, unknown props, invalid values, and missing required props. The same merged enum covers form components and groups; `component_enum` configures its output file path, with namespace inferred from Composer PSR-4.

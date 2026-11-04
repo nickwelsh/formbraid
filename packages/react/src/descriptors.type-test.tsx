@@ -1,11 +1,5 @@
 /* oxlint-disable eslint/new-cap -- Effect uses capitalized functional Schema and Context constructors. */
-import type {
-    FormDefinition,
-    FormDescriptor,
-    SubmissionCallback,
-    SubmissionResult,
-    FormDescriptorData,
-} from '@formbraid/core';
+import type { FormDefinition, FormDescriptor, SubmissionCallback, SubmissionResult } from '@formbraid/core';
 import { Context, Effect, Schema, SchemaGetter } from 'effect';
 import { createFormbraid } from './create-formbraid.js';
 import type { FieldProps } from './types.js';
@@ -88,13 +82,13 @@ const invalidDefaults: FormDescriptor<Values> = {
     definition,
     // @ts-expect-error Defaults match the editable draft.
     defaultValues: { title: 42 },
-    submission: { driver: 'http', binding: {} },
+    submission: { submit: () => ({ status: 'success' }) },
 };
-const ambiguous: FormDescriptor<Values> = {
+const named: FormDescriptor<Values> = {
     version: 1,
     definition,
-    // @ts-expect-error Driver and callback submissions are mutually exclusive, including structural objects.
-    submission: { driver: 'http', binding: {}, submit: () => ({ status: 'success' }) },
+    // @ts-expect-error A named executor is not an executable submission callback.
+    submission: { driver: 'http', binding: {} },
 };
 const invalidCallback: FormDescriptor<Values> = {
     version: 1,
@@ -112,19 +106,39 @@ const noOutcome: FormDescriptor<Values> = {
         },
     },
 };
-const portableDefinition = { ...definition, defaultValues: { title: '' } };
-const portable: FormDescriptorData = {
-    version: 1,
-    definition: portableDefinition,
-    submission: { driver: 'http', binding: {} },
-};
-const notPortable: FormDescriptorData = {
-    version: 1,
-    definition: portableDefinition,
-    // @ts-expect-error Runtime callbacks cannot be serialized as descriptor data.
-    submission: { submit: () => ({ status: 'success' }) },
-};
-void [invalidDefaults, ambiguous, invalidCallback, noOutcome, portable, notPortable];
+void [invalidDefaults, named, invalidCallback, noOutcome];
+
+export function CallbackOverrideTypeProof() {
+    const instance = runtime.useForm(definition, { submit: callback });
+    const overridden = runtime.useForm(descriptor, { submit: callback });
+    const result: Promise<SubmissionResult<number, 'offline'>> = instance.form.handleSubmit();
+    const descriptorResult: Promise<SubmissionResult<number, 'offline'>> = overridden.form.handleSubmit();
+    // @ts-expect-error Per-form callback success types are inferred, not erased to unknown or void.
+    const wrong: Promise<SubmissionResult<string, 'offline'>> = instance.form.handleSubmit();
+    // @ts-expect-error Per-form callback failure types are inferred too.
+    const wrongError: Promise<SubmissionResult<number, 'unrelated'>> = instance.form.handleSubmit();
+    // @ts-expect-error Callbacks consume the decoded output.
+    runtime.useForm(definition, { submit: (_values: { title: number }) => ({ status: 'success' }) });
+    void [result, descriptorResult, wrong, wrongError];
+    return (
+        <runtime.Form
+            form={definition}
+            submit={callback}
+            onResult={(outcome) => {
+                if (outcome.status === 'success') {
+                    const value: number = outcome.value;
+                    // @ts-expect-error JSX callback options preserve success payload inference.
+                    const invalid: string = outcome.value;
+                    void [value, invalid];
+                }
+                if (outcome.status === 'failure') {
+                    const error: 'offline' = outcome.error;
+                    void error;
+                }
+            }}
+        />
+    );
+}
 
 class Decode extends Context.Service<Decode, { readonly prefix: string }>()('descriptor/Decode') {}
 const decodeTitle = SchemaGetter.transformEffect((value: string) =>

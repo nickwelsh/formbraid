@@ -3,13 +3,12 @@ import type {
     FormDefinition,
     FormDescriptor,
     SubmissionCallback,
-    SubmissionDriver,
     SubmissionResult,
     UploadProgress,
 } from '@formbraid/core';
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
-import { Effect, Schema } from 'effect';
-import { createFormbraid, defineConfig } from './create-formbraid.js';
+import { Schema } from 'effect';
+import { defineConfig } from './create-formbraid.js';
 import { useFieldContext } from './hooks.js';
 import type { FieldProps } from './types.js';
 
@@ -178,28 +177,21 @@ describe('producer form descriptors', () => {
         expect(screen.queryByRole('alert')).toBeNull();
     });
 
-    it('routes driver descriptors through the registry and lets explicit defaults override descriptor defaults', async () => {
+    it('lets explicit defaults override descriptor defaults', async () => {
         expect.hasAssertions();
-        const submit = vi.fn<SubmissionDriver['submit']>(() => Effect.succeed({ status: 'success' as const }));
-        const configured = createFormbraid({
-            fieldComponents: { TextField },
-            formComponents: { SubmitButton },
-            submissions: { http: { submit } },
-        });
+        const submit = vi.fn<SubmissionCallback<Values>>(() => ({ status: 'success' }));
         const descriptor: Descriptor = {
             version: 1,
             definition,
             defaultValues: { title: 'Descriptor' },
-            submission: { driver: 'http', binding: { url: '/todos/42', method: 'patch' } },
+            submission: { submit },
         };
-        render(<configured.Form form={descriptor} defaultValues={{ title: 'Explicit' }} />);
+        render(<formbraid.Form form={descriptor} defaultValues={{ title: 'Explicit' }} />);
         expect(screen.getByRole('textbox').getAttribute('value')).toBe('Explicit');
         submitForm();
-        await waitFor(() =>
-            expect(submit).toHaveBeenCalledWith(
-                expect.objectContaining({ data: { title: 'Explicit' }, binding: descriptor.submission.binding }),
-            ),
-        );
+        await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+        expect(submit.mock.calls[0]?.[0]).toStrictEqual({ title: 'Explicit' });
+        expect(submit.mock.calls[0]?.[1].signal).toBeInstanceOf(AbortSignal);
     });
 
     it('passes decoded values to callbacks and publishes their explicit failure and progress', async () => {
@@ -226,14 +218,14 @@ describe('producer form descriptors', () => {
     it('lets an explicit executor replace the descriptor callback', async () => {
         expect.hasAssertions();
         const callback = vi.fn<SubmissionCallback<Values>>(() => ({ status: 'success' }));
-        const submit = vi.fn<SubmissionDriver['submit']>(() => Effect.succeed({ status: 'success' as const }));
+        const submit = vi.fn<SubmissionCallback<Values>>(() => ({ status: 'success' }));
         const descriptor: Descriptor = {
             version: 1,
             definition,
             defaultValues: { title: 'Valid' },
             submission: { submit: callback },
         };
-        render(<formbraid.Form form={descriptor} submission={{ submit }} />);
+        render(<formbraid.Form form={descriptor} submit={submit} />);
         submitForm();
         await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
         expect(callback).not.toHaveBeenCalled();

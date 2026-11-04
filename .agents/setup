@@ -83,9 +83,7 @@ time pnpm install --frozen-lockfile
 echo '[setup] Installing Laravel development dependencies from composer.lock'
 time composer install --working-dir=packages/laravel --no-interaction --prefer-dist --no-progress
 
-echo '[setup] Building library exports and linking the workspace CLI (not the docs site)'
+echo '[setup] Building library exports (not the docs site)'
 time pnpm exec vp run --filter './packages/*' --cache build
-# pnpm cannot link the formbraid bin until the generator has been built.
-time pnpm install --frozen-lockfile --offline
 
 echo "[setup] Ready in ${SECONDS}s; no servers or authentication are needed during setup"

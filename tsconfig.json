@@ -6,13 +6,7 @@
             "@formbraid/core": ["./packages/core/src/index.ts"],
             "@formbraid/core/vite": ["./packages/core/src/vite.ts"],
             "@formbraid/react": ["./packages/react/src/index.ts"],
-            "@formbraid/inertia/effect": ["./packages/inertia/src/effect.ts"],
-            "@formbraid/inertia": ["./packages/inertia/src/index.ts"],
             "@formbraid/generator": ["./packages/generator/src/index.ts"],
-            "@formbraid/react/generator": ["./packages/react/src/generator.ts"],
-            "@formbraid/inertia/generator": ["./packages/inertia/src/generator.ts"],
-            "@formbraid/generator/react": ["./packages/generator/src/react.ts"],
-            "@formbraid/laravel/generator": ["./packages/laravel/js/generator.ts"],
             "@formbraid/example/*": ["./examples/react/src/*"]
         }
     },

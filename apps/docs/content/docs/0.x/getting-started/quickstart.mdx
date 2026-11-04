@@ -1,11 +1,58 @@
 ---
 title: Quickstart
-description: Generate and render a Laravel profile form with typed React controls.
+description: Scaffold application-owned React controls and generate forms with Vite and Composer.
 ---
 
-This walkthrough assumes a Laravel application with React and Inertia and the [local packages installed](./installation.mdx). Files belong to that application.
+This walkthrough assumes a Laravel application with React and the [local packages installed](./installation.mdx). Inertia is optional; Fetch is the default submission generator.
 
-## 1. Write a FormRequest
+## 1. Scaffold frontend components
+
+```sh
+php artisan formbraid:init --register-vite
+```
+
+By default, init creates these user-owned files in `resources/js/formbraid`:
+
+- `index.ts`: component-only React configuration exporting `Form` and `useForm`.
+- `fields.tsx`: editable field controls using `useFieldContext`.
+- `form-components.tsx`: editable form controls using `useFormContext`.
+- `laravel.ts`: build-safe integration descriptor; it imports no UI modules.
+
+Files are placed in `dirname(config('formbraid.metadata'))` if you change the metadata path. Rerunning init preserves existing files and edits. It does not create placeholder `_metadata.json`.
+
+The component configuration has this shape:
+
+```ts title="resources/js/formbraid/index.ts"
+import { defineConfig } from '@formbraid/react';
+import { TextField, NumberField, CheckboxField, DateField, SelectField, FileField } from './fields';
+import { SubmitButton } from './form-components';
+
+export const { Form, useForm } = defineConfig({
+    components: { TextField, NumberField, CheckboxField, DateField, SelectField, FileField },
+    formComponents: { SubmitButton },
+    submitComponent: 'SubmitButton',
+});
+```
+
+Keep literal component keys and statically inspectable objects. Use optional `groups` for composite controls. Do not register submissions or build integrations here.
+
+## 2. Register the Vite integration
+
+`--register-vite` edits only a standard literal `defineConfig({ plugins: [...] })`. For a complex config it prints manual instructions instead of rewriting application code. Add the imports and plugin alongside existing plugins:
+
+```ts title="vite.config.ts"
+import { defineConfig } from 'vite';
+import { vitePlugin as formbraid } from '@formbraid/core/vite';
+import laravelForms from './resources/js/formbraid/laravel';
+
+export default defineConfig({
+    plugins: [formbraid({ integrations: [laravelForms] })],
+});
+```
+
+The scaffolded descriptor points to `./index.ts`, `./_metadata.json`, and `['php', 'artisan', 'formbraid:generate']`. Its PHP watch patterns cover requests, app code, routes, and config; generated outputs are excluded.
+
+## 3. Write a request and controller
 
 ```php title="app/Http/Requests/UpdateProfileRequest.php"
 <?php
@@ -31,142 +78,55 @@ final class UpdateProfileRequest extends FormRequest
 }
 ```
 
-The application must protect the route and authorize the record being changed. Generation instantiates requests to read metadata; it does not run authorization.
-
-## 2. Create the controls
-
-```tsx title="resources/js/forms/components.tsx"
-import { useId } from 'react';
-import { useFieldContext, useFormContext, type FieldProps } from '@formbraid/react';
-
-export function TextField({ label, helpText }: FieldProps<string>) {
-    const field = useFieldContext<string>();
-    const id = useId();
-    const errorId = `${id}-errors`;
-    return (
-        <div>
-            <label htmlFor={id}>{label}</label>
-            <input
-                id={id}
-                name={field.name}
-                value={field.value}
-                onChange={(event) => field.setValue(event.target.value)}
-                onBlur={field.touch}
-                aria-invalid={field.errors.length > 0}
-                aria-describedby={field.errors.length > 0 ? errorId : undefined}
-            />
-            {helpText && <p>{helpText}</p>}
-            <div id={errorId} role="alert">
-                {field.errors.join(' ')}
-            </div>
-        </div>
-    );
-}
-
-export function SubmitButton({ label = 'Save' }: { label?: string }) {
-    const form = useFormContext();
-    return (
-        <form.Subscribe selector={(state) => state.isSubmitting}>
-            {(busy) => (
-                <button type="submit" disabled={busy}>
-                    {label}
-                </button>
-            )}
-        </form.Subscribe>
-    );
-}
-```
-
-## 3. Register components and submission
-
-```ts title="resources/js/forms/index.ts"
-import { createFormbraid } from '@formbraid/react';
-import { inertia } from '@formbraid/inertia';
-import { TextField, SubmitButton } from './components';
-
-const formbraid = createFormbraid({
-    fieldComponents: { TextField },
-    formComponents: { SubmitButton },
-    submissions: { web: inertia({ visit: { preserveScroll: true } }) },
-    submitComponent: 'SubmitButton',
-});
-
-export default formbraid;
-export const { Form, useForm } = formbraid;
-```
-
-Keep the default export and direct registry objects statically inspectable. Their literal keys become generated component enum cases and typed form bindings.
-
-## 4. Configure generation
-
-```ts title="formbraid.config.ts"
-import { defineConfig } from '@formbraid/generator';
-import { laravel } from '@formbraid/laravel/generator';
-import { react } from '@formbraid/react/generator';
-import { inertia } from '@formbraid/inertia/generator';
-
-const app = laravel();
-
-export default defineConfig({
-    sources: { app },
-    framework: react('./resources/js/forms/index.ts'),
-    submissions: { web: inertia({ bindings: app.http() }) },
-    output: {
-        forms: './resources/js/generated/forms',
-        actions: './resources/js/generated/actions',
-    },
-});
-```
-
-The published PHP config defaults to discovering `app/Http/Requests` and generating component enums in `App\Enums`. Configure only the component types your registry supports. This example needs a string mapping; an `email` mapping must not supply extra props unless your control declares them:
-
-```php title="config/formbraid.php"
+```php title="app/Http/Controllers/ProfileController.php"
 <?php
 
-return [
-    'requests' => ['app/Http/Requests'],
-    'enums' => [
-        'fields' => 'App\\Enums\\FormField',
-        'components' => 'App\\Enums\\FormComponent',
-        'groups' => null,
-    ],
-    'fields' => [
-        'types' => ['string' => 'TextField'],
-        'rules' => [],
-        'fallbackType' => 'string',
-    ],
-];
-```
+namespace App\Http\Controllers;
 
-## 5. Bind a named route
-
-```php title="routes/web.php"
 use App\Http\Requests\UpdateProfileRequest;
-use Illuminate\Support\Facades\Route;
+use Illuminate\Http\JsonResponse;
 
-Route::patch('/profile', function (UpdateProfileRequest $request) {
-    $request->user()->update($request->validated());
-    return back();
-})->middleware('auth')->name('profile.update');
-```
+final class ProfileController extends Controller
+{
+    public function update(UpdateProfileRequest $request): JsonResponse
+    {
+        $request->user()->update($request->validated());
 
-```sh
-pnpm exec formbraid generate
-```
-
-Generation writes enums before extraction, then definitions and actions. The named `profile.update` route produces an `update` action in the `profile` module.
-
-## 6. Render the form
-
-```tsx title="resources/js/pages/profile.tsx"
-import { Form } from '../forms';
-import { update } from '../generated/actions/profile';
-
-export function Profile({ user }: { user: { name: string; email: string } }) {
-    return <Form form={update.form()} defaultValues={{ name: user.name, email: user.email }} />;
+        return response()->json(['saved' => true]);
+    }
 }
 ```
 
-Without children, Formbraid renders the fields in order and appends the submit component. On submit it validates the captured draft, performs the Inertia visit, and maps Laravel errors back to controls. For record routes, pass parameters to `update.form({ user: user.id })`.
+```php title="routes/web.php"
+use App\Http\Controllers\ProfileController;
+use Illuminate\Support\Facades\Route;
 
-Use [custom layouts](../react/forms.mdx), [groups](../react/groups.mdx), and [server validation](../validation.mdx) as the form grows. In CI, run `pnpm exec formbraid generate --check` to detect stale generated files.
+Route::patch('/profile', [ProfileController::class, 'update'])->middleware('auth');
+```
+
+The application must authenticate and authorize the operation. Generation reads metadata without running request authorization or validation. For the Inertia submission generator, use the application's normal Inertia response/redirect lifecycle instead of this Fetch-oriented JSON response.
+
+## 4. Review config and start Vite
+
+Defaults include `metadata = resources/js/formbraid/_metadata.json`, `output = resources/js/formbraid/laravel`, `component_enum = app/Formbraid/FormField.php`, and `submission_driver = Formbraid\Laravel\Drivers\Fetch::class`. Keep initial field mappings as strings such as `'string' => 'TextField'`; this lets the first metadata pass bootstrap without a generated enum.
+
+Start the application's usual Vite dev command. Vite statically inspects TypeScript without evaluating component modules, atomically writes metadata, then runs Artisan. Artisan consumes JSON only. If `php artisan formbraid:generate` reports missing metadata, start Vite once rather than writing JSON by hand.
+
+The PHP command emits one merged string-backed `App\Formbraid\FormField` enum for fields, form components, and groups. After this pass, generated cases can be used in request `fields()` / `groups()` and config mappings. Namespaces follow Composer PSR-4 mappings.
+
+## 5. Render the descriptor
+
+```tsx title="resources/js/pages/profile.tsx"
+import { Form } from '../formbraid';
+import { update } from '../formbraid/laravel/controllers/App/Http/Controllers/ProfileController';
+
+export function Profile({ user }: { user: { name: string; email: string } }) {
+    return <Form form={update} defaultValues={{ name: user.name, email: user.email }} />;
+}
+```
+
+For this route without parameters, `update` is the exported callback-backed descriptor. For parameterized routes, the export is a factory: call `update({ user: 42 })` to obtain the descriptor directly. Neither has a `.form()` helper. Request definitions live under `requests/App/Http/Requests/UpdateProfileRequest.ts`, preserving namespaces.
+
+Without children, the form renders fields and the configured submit component. Submission validates the draft, runs the generated callback, and maps server validation errors. Fetch handles same-origin credentials, the live URL-decoded XSRF cookie, multipart/method spoofing, and cancellation. For an existing Inertia React app, choose `Formbraid\Laravel\Drivers\Inertia::class`; generated code imports its router without a Formbraid adapter or manual CSRF setup.
+
+Generated files are hash-owned; edits and unowned collisions are refused rather than overwritten. Customize scaffold files, not generated outputs. Continue with [layouts](../react/forms.mdx), [groups](../react/groups.mdx), [validation](../validation.mdx), and [generation](../laravel/generation.mdx).

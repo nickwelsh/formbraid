@@ -1,70 +1,75 @@
 ---
-title: Generate forms and actions
-description: Configure source drivers, component inspection, named actions, and drift checking.
+title: Generate forms and controllers
+description: Scaffold editable components, let Vite produce metadata, and let PHP generate owned outputs.
 ---
 
-```ts
-// formbraid.config.ts
-import { defineConfig } from '@formbraid/generator';
-import { laravel } from '@formbraid/laravel/generator';
-import { react } from '@formbraid/react/generator';
-import { inertia } from '@formbraid/inertia/generator';
-
-const app = laravel();
-
-export default defineConfig({
-    sources: { app },
-    framework: react('./resources/js/forms/index.ts'),
-    submissions: { web: inertia({ bindings: app.http() }) },
-    output: {
-        forms: './resources/js/generated/forms',
-        actions: './resources/js/generated/actions',
-    },
-});
-```
-
-Paths resolve relative to the config file. React inspects the default-exported `createFormbraid` setup and its direct component registries and field groups without executing UI modules. Setup options and group declarations must be statically inspectable.
-
-Request discovery and enum targets belong in `config/formbraid.php`:
-
-```php
-return [
-    'requests' => ['app/Http/Requests'],
-    'enums' => [
-        'fields' => App\Enums\FormField::class,
-        'components' => App\Enums\FormComponent::class,
-        'groups' => App\Enums\FormGroup::class,
-    ],
-    'profiles' => [
-        'fixtures' => ['requests' => ['tests/Fixtures']],
-    ],
-    'fields' => [/* existing type and rule mappings */],
-];
-```
-
-Enum targets are a declarative array of class names or `null` to disable a registry. Paths follow the application's Composer PSR-4 mappings. The Laravel integration reads only this array and its PHP imports before booting Laravel, writes the enums, then extracts schemas. Config and requests can therefore reference generated enum cases on the first run. This uses no config closures and remains compatible with Laravel config caching. Clear cached config after changing backend discovery or mappings. `laravel({ root, profile: 'fixtures' })` selects a backend discovery profile; directories are defined only in PHP.
+## Scaffold user-owned files
 
 ```sh
-formbraid fields                 # enums only; useful for initial setup
-formbraid generate               # enums, forms, and named route actions
-formbraid generate --check       # CI drift check
+php artisan formbraid:init --register-vite
 ```
 
-Routes whose controller/closure parameters reference a FormRequest generate named action modules. For `profile.update` with `/users/{user}`, use:
+Init creates `index.ts`, `fields.tsx`, `form-components.tsx`, and `laravel.ts` in `dirname(config('formbraid.metadata'))`, defaulting to `resources/js/formbraid`. It preserves existing files and user edits on reruns. It does not create fake metadata or overwrite generated files to resolve collisions.
 
-```tsx
-import { update } from './generated/actions/profile';
+`index.ts` exports `{ Form, useForm }` from React's component-only `defineConfig({ components, formComponents?, groups?, submitComponent? })`. Keep keys literal and declarations statically inspectable. Submission/build integration registration does not belong there.
 
-<Form form={update.form({ user: user.id })} defaultValues={values} />;
-```
+The optional `--register-vite` modifies only a standard literal `defineConfig({ plugins: [...] })`. Complex configurations get manual instructions instead. Register alongside existing plugins:
 
-Every generated operation exposes a version-1 `FormDescriptor` through `action.form(parameters)`; call `action.form()` when there are no parameters. Optional Laravel parameters are optional properties. The result pairs the unchanged schema with a named executor and its binding. For an explicit HTTP binding:
+```ts title="vite.config.ts"
+import { defineConfig } from 'vite';
+import { vitePlugin as formbraid } from '@formbraid/core/vite';
+import laravelForms from './resources/js/formbraid/laravel';
 
-```ts
-bindForm(definition, {
-    driver: 'web',
-    binding: { kind: 'http', url: '/users/42', method: 'patch' },
+export default defineConfig({
+    plugins: [formbraid({ integrations: [laravelForms] })],
 });
 ```
 
-Schemas can render directly for local state/validation. Submission requires a bound operation and a registered executor, or a per-form `submission` executor override.
+## Build-only descriptor
+
+```ts title="resources/js/formbraid/laravel.ts"
+import type { Integration } from '@formbraid/core/vite';
+
+export default {
+    name: 'laravel',
+    registry: new URL('./index.ts', import.meta.url),
+    metadata: new URL('./_metadata.json', import.meta.url),
+    command: ['php', 'artisan', 'formbraid:generate'],
+    watch: ['app/**/*.php', 'routes/**/*.php', 'config/formbraid.php'],
+    outputs: ['resources/js/formbraid/laravel/**', 'app/Formbraid/FormField.php'],
+} satisfies Integration;
+```
+
+Init also adds configured request patterns to `watch`. The descriptor imports no UI modules, so it is safe to load during a build. Registry/metadata URLs are relative to it; watch/output paths and command execution use the Vite root. Keep exclusions in sync if changing output paths.
+
+## Vite is the only metadata producer
+
+Start the application's usual Vite dev command, or run its Vite build. Vite statically inspects TypeScript without evaluating component modules, CSS imports, or browser globals. It atomically writes `_metadata.json`, then invokes Artisan. In dev, component imports and PHP patterns are watched, including new app module directories; changes coalesce and generated outputs do not loop back into generation.
+
+Artisan consumes JSON only. `php artisan formbraid:generate` can rerun PHP generation against an existing snapshot, but cannot refresh component metadata. If the snapshot is missing, **start Vite once**. Do not handwrite placeholder JSON. No generator CLI or React generator adapter is required.
+
+## Bootstrap and generated paths
+
+Keep initial PHP field mappings as strings until the first pass. PHP merges frontend fields, form components, and groups into one string-backed enum at `component_enum` (default `app/Formbraid/FormField.php`). Composer PSR-4 determines its namespace. After generation, use its cases in request `fields()` / `groups()` or config mappings.
+
+Request definitions use `defineForm` and preserve fully qualified namespaces as directory segments:
+
+- `requests/App/Http/Requests/UpdateProfileRequest.ts`
+- `controllers/App/Http/Controllers/ProfileController.ts`
+
+These paths are under the configured `output`, default `resources/js/formbraid/laravel`. A routed controller method accepting a discovered FormRequest produces a descriptor factory:
+
+```tsx
+import { Form } from './formbraid';
+import { update } from './formbraid/laravel/controllers/App/Http/Controllers/ProfileController';
+
+<Form form={update({ user: 42 })} defaultValues={values} />;
+```
+
+For a route without parameters, the export is the descriptor itself: render `<Form form={update} />`. Parameterized functions return descriptors directly, not `.form()` helpers or named driver bindings. The descriptor contains a definition and emitted `submission.submit` callback. Bare request definitions can render for local editing/validation; provide a local callback or Effect operation for execution when there is no controller descriptor.
+
+## Protect generated ownership
+
+Generated outputs are hash-owned through a manifest, including the enum. Generation refuses to overwrite edited or unowned files and refuses to silently remove edited obsolete files. A generated marker alone is not permission to overwrite a file. Review conflicts and move application code out of output paths; never resolve them by falsifying ownership hashes.
+
+Scaffold files are user-owned and deliberately excluded from generated ownership. Customize those controls and producer config, then let Vite regenerate. In CI, run the application's Vite build to refresh metadata and generation before checking the worktree for output drift; there is no legacy `formbraid generate --check` CLI.

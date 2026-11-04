@@ -1,34 +1,26 @@
 ---
-title: Inertia Effect
-description: Use the Effect-native Inertia router and understand navigation outcomes.
+title: Effect operations
+description: Override descriptor execution with typed Effect operations and service-aware runners.
 ---
 
-For [Inertia Effect](https://github.com/nickwelsh/inertia-effect), change the runtime import to:
+Callbacks are the portable producer contract. Native Effect `operation` / `run` options remain available for applications that want typed domain errors, services, and scoped resources. They work with bare definitions or override a descriptor's callback for one instance.
 
-```ts
-import { inertia } from '@formbraid/inertia/effect';
+```tsx
+import { Effect } from 'effect';
 
-// Register under the same submission key used by your generated definitions.
-const submissions = {
-    web: inertia({ visit: { preserveScroll: true, errorBag: 'profile' } }),
-};
+const instance = useForm(definition, {
+    operation: (values) => Effect.succeed({ saved: values }),
+});
+
+return <Form form={instance} />;
 ```
 
-This adapter composes the application's `router.visitEffect` directly. It waits for navigation completion, including the page commit and renderer acknowledgement. Effectful visit callbacks run in the submitting context. The generator remains `@formbraid/inertia/generator`: both adapters use the same HTTP bindings. An optional `router` accepts your own Inertia Effect router instance.
+`definition`, `Form`, and `useForm` come from your application. This local example is not a server persistence implementation. A real operation must wait for authoritative acceptance before succeeding.
 
-Success and validation outcomes become Formbraid success and field errors. Navigation failures and handled HTTP/network exceptions become submission failures; defects remain Effect defects. Prevented, interrupted, cancelled, discarded, and redirect outcomes become cancelled submissions. A redirect starts another navigation without awaiting its validation result, so it cannot confirm this submission's success. Aborting the submission signal or interrupting its fiber interrupts the native visit and releases the listener; Inertia can finish an already-started atomic history/render commit before cancellation completes.
+Draft values can differ from schema-decoded output. The runner must supply services required by both schema decoding and the operation; missing services are type errors. Typed domain errors become `failure`, while unexpected defects become `defect`. The session supplies the execution scope, and finalizers run on completion and cancellation.
 
-The fork retains the `@inertiajs/core` package name. Install it as that package so your application and Formbraid share one router. At revision `18db6eba25c95837cf303745e46fc6201bc35177`, the repository does not contain built exports or a package preparation hook. A direct Git dependency therefore lacks executable exports. Until the fork adds a preparation hook, build and pack its core from Git:
+`submitEffect()` is a lazy wait and `submit()` starts the same shared execution immediately. Interrupting a waiting fiber does not cancel other callers; use the session's `cancel()`, `reset()`, or `dispose()` to interrupt execution for everyone.
 
-```sh
-git clone https://github.com/nickwelsh/inertia-effect.git
-cd inertia-effect
-git checkout 18db6eba25c95837cf303745e46fc6201bc35177
-pnpm install --frozen-lockfile --filter @inertiajs/core...
-pnpm --dir packages/core build
-pnpm --dir packages/core pack --out /tmp/inertia-core-effect.tgz
-# Run in your application:
-pnpm add /tmp/inertia-core-effect.tgz
-```
+See [headless sessions and Effect](../advanced/headless.mdx) for a complete schema transformation, service, runner, and cancellation example. The same options are supported by React `useForm`.
 
-Use the matching forked React/Vue/Svelte adapter in your application too. Formbraid's development dependency is a core tarball built from this pinned Git revision; its source and rebuild instructions are recorded alongside the archive. Ordinary Inertia applications keep the existing `@formbraid/inertia` import.
+There is no separate Formbraid Inertia Effect adapter. For an existing Inertia React app, use the Composer [Inertia callback generator](./inertia.mdx), or supply application-owned execution code.

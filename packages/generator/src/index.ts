@@ -1,5 +1,11 @@
-export { defineConfig, defineSubmission, GenerationError } from './contracts.js';
-export type * from './contracts.js';
-export { generate } from './generate.js';
-export type { GenerateOptions, GenerationResult } from './generate.js';
-export { inspectRegistries } from './inspect.js';
+/** Optional build-time SDK for producer packages. Applications configure @formbraid/core/vite directly. */
+export { inspectComponents, inspectRegistries, vitePlugin } from '@formbraid/core/vite';
+export type {
+    ComponentInfo,
+    ComponentMetadata,
+    Integration,
+    ModuleExport,
+    PropShape,
+    RegistryManifest,
+    TypeShape,
+} from '@formbraid/core/vite';

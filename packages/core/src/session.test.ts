@@ -1,5 +1,5 @@
 /* oxlint-disable vitest/max-expects -- Each test proves a single lifetime invariant across state, execution and transport outcomes. */
-/* oxlint-disable eslint/max-classes-per-file, typescript/class-literal-property-style -- Getter-based class envelopes reproduce valid structural driver results. */
+/* oxlint-disable eslint/max-classes-per-file, typescript/class-literal-property-style -- Getter-based class envelopes reproduce valid structural callback results. */
 import { Context, Effect, Fiber, Schema as EffectSchema } from 'effect';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { createFormSession, defineForm, definitionSchema, normalizePath } from './index.js';
@@ -148,7 +148,7 @@ describe('effect form sessions', () => {
         payload.self = payload;
         const session = createFormSession({
             definition,
-            driver: { submit: () => Effect.succeed({ status: 'defect', error: payload }) },
+            submit: () => ({ status: 'defect', error: payload }),
         });
         const native = Effect.runPromise(session.submitEffect());
         const promise = session.submit();
@@ -162,20 +162,53 @@ describe('effect form sessions', () => {
         expect(session.getSnapshot().errors['']).toHaveLength(1);
     });
 
-    it('settles publication defects from unreadable driver validation messages', async () => {
+    it.each([undefined, null, {}, { status: 'accepted' }])(
+        'rejects malformed callback outcome %# instead of accepting Promise resolution as success',
+        async (incoming) => {
+            expect.hasAssertions();
+            const session = createFormSession({
+                definition,
+                // @ts-expect-error Untyped producers can return an outcome outside the callback contract.
+                submit: async () => await Promise.resolve(incoming),
+            });
+            session.setValue('name', 'unsaved');
+            const native = Effect.runPromise(session.submitEffect());
+            const promise = session.submit();
+            const [result, nativeResult] = await Promise.all([promise, native]);
+            expect(result.status).toBe('defect');
+            expect(nativeResult).toBe(result);
+            expect(session.getSnapshot().execution.status).toBe('defect');
+            expect(session.getSnapshot().baseline.name).toBe('original');
+            expect(session.getSnapshot().isDirty).toBe(true);
+            expect(session.getSnapshot().errors['']).toHaveLength(1);
+        },
+    );
+
+    it('awaits non-Promise thenables returned by submission callbacks', async () => {
+        expect.hasAssertions();
+        const gate = deferred<SubmissionResult<number, 'offline'>>();
+        // oxlint-disable-next-line unicorn/no-thenable -- Exercise the public PromiseLike callback contract without a native Promise.
+        const thenable = { then: gate.promise.then.bind(gate.promise) };
+        const session = createFormSession({ definition, submit: () => thenable });
+        const pending = session.submit();
+        expect(thenable).not.toBeInstanceOf(Promise);
+        expect(session.getSnapshot().execution.status).toBe('submitting');
+        gate.resolve({ status: 'success', value: 42 });
+        await expect(pending).resolves.toStrictEqual({ status: 'success', value: 42 });
+        expect(session.getSnapshot().execution).toStrictEqual({ status: 'success', value: 42 });
+    });
+
+    it('settles publication defects from unreadable callback validation messages', async () => {
         expect.hasAssertions();
         const failure = new Error('Unreadable validation messages.');
         const session = createFormSession({
             definition,
-            driver: {
-                submit: () =>
-                    Effect.succeed({
-                        status: 'invalid',
-                        get errors(): Readonly<Record<string, string>> {
-                            throw failure;
-                        },
-                    }),
-            },
+            submit: () => ({
+                status: 'invalid',
+                get errors(): Readonly<Record<string, string>> {
+                    throw failure;
+                },
+            }),
         });
         const native = Effect.runPromise(session.submitEffect());
         const promise = session.submit();
@@ -201,7 +234,7 @@ describe('effect form sessions', () => {
         }
         await Promise.all(
             [new EmptySuccess(), new ExplicitUndefinedSuccess()].map(async (incoming) => {
-                const session = createFormSession({ definition, driver: { submit: () => Effect.succeed(incoming) } });
+                const session = createFormSession({ definition, submit: () => incoming });
                 const native = Effect.runPromise(session.submitEffect());
                 const promise = session.submit();
                 const [result, nativeResult] = await Promise.all([promise, native]);
@@ -228,7 +261,7 @@ describe('effect form sessions', () => {
                 return messages;
             }
         }
-        const session = createFormSession({ definition, driver: { submit: () => Effect.succeed(new Invalid()) } });
+        const session = createFormSession({ definition, submit: () => new Invalid() });
         const native = Effect.runPromise(session.submitEffect());
         const promise = session.submit();
         const [result, nativeResult] = await Promise.all([promise, native]);
@@ -243,7 +276,7 @@ describe('effect form sessions', () => {
         expect(Object.isFrozen(session.getField('name').errors)).toBe(true);
     });
 
-    it('owns class-based error dictionaries without freezing the driver objects', async () => {
+    it('owns class-based error dictionaries without freezing the callback objects', async () => {
         expect.hasAssertions();
         class ErrorRecord {
             [key: string]: string | ReadonlyArray<string>;
@@ -253,7 +286,7 @@ describe('effect form sessions', () => {
         const messages = new ErrorRecord();
         const session = createFormSession({
             definition,
-            driver: { submit: () => Effect.succeed({ status: 'invalid', errors: messages }) },
+            submit: () => ({ status: 'invalid', errors: messages }),
         });
         const native = Effect.runPromise(session.submitEffect());
         const promise = session.submit();
@@ -288,7 +321,7 @@ describe('effect form sessions', () => {
                 return payload;
             }
         }
-        const session = createFormSession({ definition, driver: { submit: () => Effect.succeed(new Failure()) } });
+        const session = createFormSession({ definition, submit: () => new Failure() });
         const native = Effect.runPromise(session.submitEffect());
         const promise = session.submit();
         const [result, nativeResult] = await Promise.all([promise, native]);
@@ -304,19 +337,16 @@ describe('effect form sessions', () => {
         expect.hasAssertions();
         const incoming: SubmissionResult = { status: 'success' };
         Object.defineProperty(incoming, 'status', { enumerable: false });
-        const session = createFormSession({ definition, driver: { submit: () => Effect.succeed(incoming) } });
+        const session = createFormSession({ definition, submit: () => incoming });
         await expect(session.submit()).resolves.toStrictEqual({ status: 'success' });
         const failure = new Error('Unreadable result status.');
         session.updateOptions({
             definition,
-            driver: {
-                submit: () =>
-                    Effect.succeed({
-                        get status(): 'success' {
-                            throw failure;
-                        },
-                    }),
-            },
+            submit: () => ({
+                get status(): 'success' {
+                    throw failure;
+                },
+            }),
         });
         const native = Effect.runPromise(session.submitEffect());
         const promise = session.submit();
@@ -340,7 +370,7 @@ describe('effect form sessions', () => {
             const incoming = envelopes[key];
             const original: unknown = Reflect.get(incoming, key);
             const replacement: { pending?: Promise<SubmissionResult> } = {};
-            const session = createFormSession({ definition, driver: { submit: () => Effect.succeed(incoming) } });
+            const session = createFormSession({ definition, submit: () => incoming });
             Object.defineProperty(incoming, key, {
                 get: () => {
                     session.reset({ ...definition.defaultValues, name: 'replacement' });
@@ -441,7 +471,7 @@ describe('effect form sessions', () => {
         const gate = deferred<SubmissionResult>();
         const session = createFormSession({
             definition,
-            driver: { submit: () => Effect.promise(async () => await gate.promise) },
+            submit: async () => await gate.promise,
         });
         const pending = session.submit();
         session.setValue('name', 'changed');
@@ -1082,9 +1112,7 @@ describe('effect form sessions', () => {
         expect.hasAssertions();
         const session = createFormSession({
             definition,
-            driver: {
-                submit: () => Effect.succeed({ status: 'invalid', errors: { '__proto__.polluted': 'hostile' } }),
-            },
+            submit: () => ({ status: 'invalid', errors: { '__proto__.polluted': 'hostile' } }),
         });
         const result = await session.submit();
         expect(result.status).toBe('defect');

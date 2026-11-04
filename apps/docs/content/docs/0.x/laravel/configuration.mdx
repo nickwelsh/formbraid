@@ -1,27 +1,23 @@
 ---
 title: Laravel configuration
-description: Configure request discovery, generated enum targets, field mappings, and profiles.
+description: Configure PHP discovery, metadata, output paths, the merged enum, and callback generation.
 ---
 
-Publish `config/formbraid.php` with `php artisan vendor:publish --tag=formbraid-config`. Laravel discovers the service provider from the Composer package.
+`php artisan formbraid:init` creates config and frontend scaffolds without overwriting existing files. To publish config alone, use `php artisan vendor:publish --tag=formbraid-config`. Laravel discovers the Composer service provider automatically.
 
-## Discover requests
+## Paths and discovery
 
-```php
+```php title="config/formbraid.php"
 return [
-    'requests' => ['app/Http/Requests'],
-    'enums' => [
-        'fields' => App\Enums\FormField::class,
-        'components' => App\Enums\FormComponent::class,
-        'groups' => App\Enums\FormGroup::class,
-    ],
-    'profiles' => [
-        'fixtures' => ['requests' => ['tests/Fixtures']],
-    ],
+    'requests' => ['app/Http/Requests', 'app/Modules/**/Requests/**/*.php'],
+    'metadata' => 'resources/js/formbraid/_metadata.json',
+    'output' => 'resources/js/formbraid/laravel',
+    'component_enum' => 'app/Formbraid/FormField.php',
+    'submission_driver' => Formbraid\Laravel\Drivers\Fetch::class,
     'fields' => [
         'types' => [
-            'string' => App\Enums\FormField::TextField,
-            'boolean' => App\Enums\FormField::CheckboxField,
+            'string' => 'TextField',
+            'boolean' => 'CheckboxField',
         ],
         'rules' => [],
         'fallbackType' => 'string',
@@ -29,34 +25,32 @@ return [
 ];
 ```
 
-Only register component names that the React registry supplies. The full default config includes number, date, enum, and file mappings; remove or replace unsupported controls.
+Paths are relative to the Laravel application. `requests` accepts directories and PHP glob patterns, including `app/Modules/**/Requests/**/*.php`. The default discovery directory is `app/Http/Requests`; the example adds modular requests. The full default mappings include numbers, dates, enums, and files; register only controls your frontend provides.
 
-## Enum preparation
+`metadata` is the JSON snapshot produced by Vite. `output` is the generated TypeScript directory. `component_enum` is a PHP **output file path**, not a class name or an array of separate enum targets. When changing paths, keep the build-only `laravel.ts` registry/metadata URLs, watch patterns, and output exclusions in sync. Init places frontend files in the directory containing `metadata`.
 
-Enum target values are class names, or `null` to disable a registry. Files resolve through the application's Composer PSR-4 mappings. Run `formbraid fields` for enums only, or `formbraid generate` for the complete pipeline.
+## Bootstrap the merged enum
 
-The integration reads the declarative enum target array and its PHP imports before booting Laravel. It writes enum cases from the frontend registry, then extracts requests. Requests and configuration can therefore reference generated enum cases on the first run.
+Keep initial field mappings as strings. Laravel must be able to boot before any generated enum exists; generation does not pre-evaluate config to create it first.
 
-Keep enum targets declarative. Configuration closures are unnecessary. Clear Laravel's cached configuration after changing discovery or mappings:
+After Vite's first metadata pass, PHP emits one string-backed enum containing field components, form components, and groups. The namespace follows the application's Composer PSR-4 mapping: the default path typically becomes `App\Formbraid\FormField`.
+
+You can then use `FormField::TextField` in `fields()` and `FormField::AddressAutocomplete` in `groups()`, or replace config mappings with generated cases. There is no separate `FormComponent` or `FormGroup` enum to configure. Keep generated output untouched; hash ownership protects it from silent overwrites.
+
+Clear cached config after changing discovery, mappings, paths, or submission generation:
 
 ```sh
 php artisan config:clear
 ```
 
-## Select a profile
+## Submission code generator
 
-```ts
-import { laravel } from '@formbraid/laravel/generator';
+Use `Formbraid\Laravel\Drivers\Fetch::class` for self-contained Fetch callbacks, or `Formbraid\Laravel\Drivers\Inertia::class` in an existing Inertia React application. Both emit callbacks into descriptors; neither creates runtime named bindings. Inertia dynamically imports the application's router, with no Formbraid adapter installation or manual CSRF token setup.
 
-const app = laravel({ root: './backend', profile: 'fixtures' });
-```
+A custom class implementing `Formbraid\Laravel\Contracts\SubmissionDriver` can be resolved through the Laravel container. Its `generate(string $endpoint, string $method): string` method receives a safe TypeScript endpoint expression and returns a callback expression. See [producer integrations](../advanced/drivers.mdx).
 
-The selected profile changes backend discovery. Request directories remain in PHP configuration; the JavaScript config selects the backend root and profile. Paths in `formbraid.config.ts` resolve from that file's directory.
+## PHP inspection boundaries
 
-## Separate extraction and HTTP discovery
+`formbraid:export` extracts portable schemas and diagnostics; `formbraid:http` inspects HTTP operations. These are lower-level PHP commands, not Node integrations or alternate metadata producers. `formbraid:generate` consumes existing metadata; if absent, start Vite once.
 
-`formbraid:export` extracts portable schemas and diagnostics. `formbraid:http` discovers HTTP operations separately. The Node source exposes `app.http()` for generator integrations that need routes; schema-only generation can omit submission integrations.
-
-FormRequest extraction does not run validation or authorization. Write rules that can be described without authenticated or live request state. A request whose metadata depends on a current user, database result, or submitted value may need a dedicated source driver. Keep authorization in the actual request lifecycle.
-
-See [field mappings](./rules.mdx) and [generation](./generation.mdx) for the complete application configuration.
+Extraction does not run authorization or validation. Rules must be describable without live authenticated/request state. Keep access control in the actual request lifecycle. See [field mappings](./rules.mdx) and [generation](./generation.mdx).

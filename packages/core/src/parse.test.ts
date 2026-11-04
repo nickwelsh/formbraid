@@ -5,8 +5,7 @@ import {
     parseExtraction,
     parseExtractionEffect,
     parseJsonValueEffect,
-    parseFormDescriptor,
-    parseFormDescriptorEffect,
+    FormMetadataSchema,
 } from './parse.js';
 
 vi.setConfig({ testTimeout: 10_000 });
@@ -36,25 +35,18 @@ const extraction = {
 } as const;
 
 describe('native metadata decoding', () => {
-    it('decodes versioned third-party descriptors without a generator or runtime schema', () => {
+    it('decodes portable form metadata without accepting executable descriptor data', () => {
         expect.hasAssertions();
-        const descriptor = {
-            version: 1,
-            definition: extraction.forms[0],
-            defaultValues: { name: 'Nick', preferences: { enabled: true } },
-            submission: { driver: 'http', binding: { url: '/profile', method: 'patch' } },
-        };
-        const json = JSON.stringify(descriptor);
-        expect(parseFormDescriptor(json)).toStrictEqual(descriptor);
-        expect(Effect.runSync(parseFormDescriptorEffect(json))).toStrictEqual(descriptor);
+        const [metadata] = extraction.forms;
+        const decode = Schema.decodeUnknownEffect(FormMetadataSchema, { onExcessProperty: 'error' });
+        expect(Effect.runSync(decode(metadata))).toStrictEqual(metadata);
         for (const invalid of [
-            { ...descriptor, version: 2 },
-            { ...descriptor, defaultValues: [] },
-            { ...descriptor, submission: { ...descriptor.submission, submit: 'callback' } },
-            { ...descriptor, definition: { ...descriptor.definition, schema: {} } },
+            { ...metadata, defaultValues: [] },
+            { ...metadata, schema: {} },
+            { ...metadata, submission: { submit: () => ({ status: 'success' }) } },
+            { version: 1, definition: metadata, submission: { submit: () => ({ status: 'success' }) } },
         ]) {
-            const invalidJson = JSON.stringify(invalid);
-            const error = Effect.runSync(Effect.flip(parseFormDescriptorEffect(invalidJson)));
+            const error = Effect.runSync(Effect.flip(decode(invalid)));
             expect(Schema.isSchemaError(error)).toBe(true);
         }
     });

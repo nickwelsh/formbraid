@@ -4,20 +4,20 @@ The source repository is `nickwelsh/formbraid`. npm packages use the `@formbraid
 
 ## Create the npm package records
 
-Use npm 12.2.0 or later. Generate the five placeholders, refresh your local npm login, and stage them:
+Use npm 12.2.0 or later. Generate the three placeholders, refresh your local npm login, and stage them:
 
 ```sh
 npm install --global npm@12.2.0
 npm login
 pnpm packages:bootstrap
-for pkg in core generator react inertia laravel; do
+for pkg in core generator react; do
     npm stage publish "./artifacts/npm-bootstrap/$pkg" --access public --tag bootstrap
 done
 ```
 
 Each directory contains only a minimal `package.json` at `0.0.0-bootstrap.0`. No implementation or dependencies are included. The `bootstrap` dist-tag keeps these placeholders away from `latest`, even if approved. Staging can create a new package record; it does not make the version installable. Do not approve the placeholders as a release.
 
-For **each** of `@formbraid/core`, `@formbraid/generator`, `@formbraid/react`, `@formbraid/inertia`, and `@formbraid/laravel`, configure an npm trusted publisher:
+For **each** of `@formbraid/core`, `@formbraid/generator`, and `@formbraid/react`, configure an npm trusted publisher. `@formbraid/core/vite` is a core subpath, not a separate package. The generator is an optional producer-author SDK; applications do not need it. Laravel is distributed only as the Composer package `formbraid/laravel`; there is no Formbraid Inertia package.
 
 | Field                | Value                                                                        |
 | -------------------- | ---------------------------------------------------------------------------- |
@@ -67,7 +67,7 @@ gh workflow run sync-php.yml --repo nickwelsh/formbraid --ref main
 
 Submit `https://github.com/formbraid/laravel` to [Packagist](https://packagist.org/packages/submit) after the initial sync. Enable Packagist's GitHub webhook/auto-update integration on the mirror. GitHub releases in the monorepo mirror the matching tag after verification; Packagist reads those tags. CI does not need a Packagist API token.
 
-The split retains the package's source history. Composer archives omit Node build configuration, JS sources, lockfiles, and PHP development tooling through `packages/laravel/.gitattributes`. The package includes its own license and README.
+The split retains the package's source history. Composer archives omit lockfiles and PHP development tooling through `packages/laravel/.gitattributes`. The package includes its license, README, PHP source, and TypeScript scaffolding/submission templates; it needs no Node package.
 
 ## Configure documentation deployment
 
@@ -87,8 +87,8 @@ To verify a branch manually, run `gh workflow run check.yml --repo nickwelsh/for
 ## Stage a release
 
 1. Merge the rename and publication setup to `main`. Wait for CI and the initial Composer mirror sync to pass.
-2. Keep all five public npm packages at the same version. Update their internal peer ranges when changing versions.
-3. Push the matching `vVERSION` tag. This runs checks and deploys documentation. CI rejects tags that do not match all five package versions before deploying docs.
+2. Keep all three public npm packages at the same version. Update their internal peer ranges when changing versions.
+3. Push the matching `vVERSION` tag. This runs checks and deploys documentation. CI rejects tags that do not match all three package versions before deploying docs.
 4. Publish a GitHub release for that tag. Mark it as a prerelease exactly when its version includes a prerelease suffix.
 5. `release.yml` reruns verification, stages the exact checked npm tarballs with OIDC, and mirrors the Composer tag. It never approves npm stages. Stable versions use `latest`; prereleases use `next`.
 6. Inspect and approve the staged implementation versions on npm using your own account and 2FA when ready. The Composer tag is public when mirrored, independently of npm approval.
@@ -111,4 +111,4 @@ composer --working-dir=packages/laravel test
 composer --working-dir=packages/laravel check
 ```
 
-`packages:check` checks the actual tarball identities, versions, exports, runtime dependency specifiers, license, README, and file boundaries. `packages:smoke` installs the five tarballs into a temporary project with standard React and Inertia, then loads the public entry points without workspace aliases. `@formbraid/inertia/effect` additionally requires the documented Inertia Effect fork; the standard adapter supports upstream Inertia.
+`packages:check` checks the actual tarball identities, versions, exports, runtime dependency specifiers, license, README, and file boundaries. `packages:smoke` installs the three tarballs into a temporary project and loads the public entry points without workspace aliases. Verify the runtime entries separately from the Node-only `@formbraid/core/vite` and optional generator SDK. Laravel submission callbacks are emitted by the Composer package; Inertia applications supply their existing `@inertiajs/react` dependency.

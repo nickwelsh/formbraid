@@ -41,13 +41,13 @@ export const fieldGroups = { AddressAutocomplete };
 ```
 
 ```php
-use App\Enums\FormGroup;
+use App\Formbraid\FormField;
 use Formbraid\Laravel\FieldGroup;
 
 public function groups(): array
 {
     return [
-        'address' => FieldGroup::make(FormGroup::AddressAutocomplete)
+        'address' => FieldGroup::make(FormField::AddressAutocomplete)
             ->label('Delivery Address')
             ->fields([
                 'line1' => 'address_line_1',
@@ -59,6 +59,8 @@ public function groups(): array
     ];
 }
 ```
+
+Register `fieldGroups` as `groups: fieldGroups` in React's `defineConfig`. The example PHP case comes from the single merged enum generated after Vite's first metadata pass; its namespace follows Composer PSR-4 and the configured `component_enum` output path. Use string component mappings while bootstrapping before the enum exists.
 
 Every slot must be mapped to a known field with a compatible type for both reading and writing. This includes scalar and enum values, nullability, explicit undefined, and array mutability. Fields can belong to only one group. The runnable example demonstrates all five writes, group error subscriptions, and a readout of the resulting values.
 

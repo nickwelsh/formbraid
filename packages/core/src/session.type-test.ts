@@ -78,19 +78,19 @@ nullable.append('rows', { name: 'added' });
 // @ts-expect-error Nullable array items retain leaf types.
 nullable.append('rows', { name: 42 });
 
-// @ts-expect-error Portable drivers cannot manufacture a typed operation success value.
 createFormSession<typeof definition.defaultValues, typeof definition.defaultValues, { id: number }, 'domain'>({
     definition,
-    driver: { submit: () => Effect.succeed({ status: 'success' }) },
+    // @ts-expect-error A callback must provide its declared success payload.
+    submit: () => ({ status: 'success' }),
 });
-// @ts-expect-error Portable driver failures are unknown unless a typed operation owns them.
 createFormSession<typeof definition.defaultValues, typeof definition.defaultValues, ReturnType<() => void>, 'domain'>({
     definition,
-    driver: { submit: () => Effect.succeed({ status: 'success' }) },
+    // @ts-expect-error Callback failures retain their declared domain error type.
+    submit: () => ({ status: 'failure', error: 'unrelated' }),
 });
 createFormSession({
     definition,
-    driver: { submit: () => Effect.succeed({ status: 'success' }) },
+    submit: () => ({ status: 'success' }),
     // @ts-expect-error Result callbacks cannot invent typed operation results.
     onResult: (callbackResult: SubmissionResult<{ id: number }>) => {
         void callbackResult;
@@ -115,7 +115,7 @@ const retainedServices: NonNullable<typeof validationDefinition.schema>['Decodin
 // @ts-expect-error A service-requiring native decoder requires a supplied runner even without an operation.
 createFormSession({
     definition: validationDefinition,
-    driver: { submit: () => Effect.succeed({ status: 'success' }) },
+    submit: () => ({ status: 'success' }),
 });
 // @ts-expect-error A decoder service requirement also survives direct schema overrides.
 createFormSession({

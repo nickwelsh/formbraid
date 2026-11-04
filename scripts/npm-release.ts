@@ -36,7 +36,7 @@ function targets(value: ExportTarget): Array<string> {
 }
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const packages = ['core', 'generator', 'react', 'inertia', 'laravel'];
+const packages = ['core', 'generator', 'react'];
 const output = path.join(root, 'artifacts/npm');
 const manifests = packages.map((name) =>
     parseManifest(readFileSync(path.join(root, 'packages', name, 'package.json'), 'utf8')),
@@ -100,7 +100,7 @@ if (command === 'bootstrap') {
 
 if (command === 'check' || command === 'smoke' || command === 'stage') {
     const archives = readdirSync(output).filter((name) => name.endsWith('.tgz'));
-    assert.equal(archives.length, packages.length, 'Expected exactly five release tarballs.');
+    assert.equal(archives.length, packages.length, 'Expected exactly three release tarballs.');
     for (const expected of manifests) {
         const archive = path.join(output, `${expected.name.replace('@', '').replace('/', '-')}-${version}.tgz`);
         const files = execFileSync('tar', ['-tzf', archive], { encoding: 'utf8' }).trim().split('\n');
@@ -148,7 +148,6 @@ if (command === 'check' || command === 'smoke' || command === 'stage') {
                     path.join(directory, '.npmrc'),
                     ...archives.map((archive) => path.join(output, archive)),
                     'react@^19.0.0',
-                    '@inertiajs/core@3.7.1',
                 ],
                 { cwd: directory, stdio: 'inherit' },
             );
@@ -161,12 +160,9 @@ if (command === 'check' || command === 'smoke' || command === 'stage') {
                 import assert from 'node:assert/strict';
                 for (const [specifier, member] of [
                     ['@formbraid/core', 'defineForm'],
-                    ['@formbraid/react', 'createFormbraid'],
-                    ['@formbraid/generator', 'defineConfig'],
-                    ['@formbraid/react/generator', 'react'],
-                    ['@formbraid/inertia', 'inertia'],
-                    ['@formbraid/inertia/generator', 'inertia'],
-                    ['@formbraid/laravel/generator', 'laravel'],
+                    ['@formbraid/react', 'defineConfig'],
+                    ['@formbraid/core/vite', 'vitePlugin'],
+                    ['@formbraid/generator', 'inspectComponents'],
                 ]) {
                     const exports = await import(specifier);
                     assert.equal(typeof exports[member], 'function', specifier);

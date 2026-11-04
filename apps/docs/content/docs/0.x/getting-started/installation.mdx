@@ -1,32 +1,29 @@
 ---
 title: Installation
-description: Install the local packages and choose the parts your application needs.
+description: Choose runtime packages and optionally add the Composer Laravel integration.
 ---
 
-Formbraid's packages are currently developed and consumed from this repository. They have not yet been published to npm or Packagist. Use workspace dependencies, local package archives, or a Composer path repository instead of assuming registry installation is available.
+Packages have not yet been published to npm or Packagist. Use workspace dependencies, local package archives, or a Composer path repository until publication. The install commands below identify the packages your application needs.
 
 ## Requirements
 
-- Node.js 24.11 or newer and the pnpm version pinned in the root `package.json`.
+- Node.js 24.11 or newer and the pnpm version pinned in the root `package.json` for this repository's tooling.
 - React 19 and Effect `4.0.2` for React forms.
-- PHP 8.3 or newer, Composer, and Laravel 12 or 13 for the Laravel integration.
+- PHP 8.3 or newer, Composer, and Laravel 12 or 13 for the optional Laravel integration.
 - PHP 8.4.1 or newer for this checkout's locked development dependencies; CI uses PHP 8.4.
 - Vite+ for repository development and package builds.
 
-## Choose packages
+## Runtime packages
 
-| Package                | Install for                                                            |
-| ---------------------- | ---------------------------------------------------------------------- |
-| `@formbraid/core`      | Definitions, JSON contracts, validation, and headless sessions         |
-| `@formbraid/react`     | React registries, contexts, bound fields, layouts, and groups          |
-| `@formbraid/inertia`   | Inertia runtime submission and generator bindings                      |
-| `@formbraid/generator` | The `formbraid` CLI, inspection, and generation                        |
-| `@formbraid/laravel`   | Node integration with the Laravel extractor and HTTP provider          |
-| `formbraid/laravel`    | PHP metadata builders, extraction, configuration, and Artisan commands |
+```sh
+pnpm add @formbraid/core @formbraid/react effect react
+```
 
-The generator and Laravel JavaScript package normally belong in development dependencies. The core, React, and selected submission adapter belong in runtime dependencies. Install the adapter's `@inertiajs/core` peer in the consuming application.
+`@formbraid/core` contains framework-agnostic definitions, callback descriptors, validation, and headless sessions. `@formbraid/react` supplies the current UI binding. Generation and Laravel are optional.
 
-## Build the repository
+`@formbraid/core/vite` is a Node-only core subpath for build integrations, not another package to install. `@formbraid/generator` is an optional producer-author SDK re-exporting that tooling; applications do not need it. There is no generator CLI, Laravel Node package, or Formbraid Inertia adapter to install. An existing Inertia app uses its own `@inertiajs/react` dependency.
+
+## Build local archives
 
 ```sh
 git clone https://github.com/nickwelsh/formbraid.git
@@ -36,11 +33,11 @@ composer install --working-dir=packages/laravel
 vp run build
 ```
 
-Within this workspace, use `workspace:*` for Formbraid package dependencies. For an application outside the workspace, pack each required package after building and install those archives together, replacing any `workspace:` references through pnpm's packing process.
+Within this workspace, use `workspace:*` dependencies. Outside it, pack the required packages after building and install the archives together. pnpm's packing process replaces workspace dependency references.
 
-## Add the PHP package
+## Optional Laravel integration
 
-In a Laravel application's `composer.json`, register the local checkout as a path repository:
+In your Laravel application's `composer.json`, register the local checkout as a path repository:
 
 ```json
 {
@@ -48,22 +45,19 @@ In a Laravel application's `composer.json`, register the local checkout as a pat
 }
 ```
 
-Then install and publish its configuration:
-
 ```sh
 composer require formbraid/laravel:@dev
-php artisan vendor:publish --tag=formbraid-config
+php artisan formbraid:init --register-vite
 ```
 
-Laravel discovers `FormbraidServiceProvider` automatically. Adjust the relative repository path for your directory structure. Commit your application's `config/formbraid.php` and review its component mappings before generation.
+Laravel discovers the provider automatically. Init creates config and editable frontend files beside the configured metadata path, preserves existing files, and prints manual Vite registration when automatic registration is unsafe. It never creates fake metadata. Review config mappings and scaffolded controls, then start your application's Vite dev server once to produce metadata and run PHP generation. See the [quickstart](./quickstart.mdx).
 
-## Try the bundled example
+To publish only config, `php artisan vendor:publish --tag=formbraid-config` remains available. It does not scaffold components or produce metadata.
+
+## Bundled example
 
 ```sh
-vp run generate:example
 vp run dev
 ```
 
-The example extracts a real FormRequest without booting a full Laravel application. Its submission handler displays the payload locally and its address lookup uses a sample suggestion. Connect an application backend and address provider for production.
-
-Continue with the [quickstart](./quickstart.mdx).
+Vite produces metadata and runs the example's PHP generation command. The example uses a lightweight PHP application and a generated Fetch callback; no generator CLI is needed. Run its PHP backend as described in [development](../development.mdx) to exercise submission. Connect your preferred address provider for production.

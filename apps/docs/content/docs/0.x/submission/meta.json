@@ -1,4 +1,4 @@
 {
     "title": "Submission",
-    "pages": ["inertia", "effect", "callbacks"]
+    "pages": ["callbacks", "inertia", "effect"]
 }

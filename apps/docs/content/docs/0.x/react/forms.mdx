@@ -4,7 +4,7 @@ description: Render automatic or custom layouts and manage the lifetime of each 
 ---
 
 ```tsx
-<Form form={update.form({ user: user.id })} defaultValues={values}>
+<Form form={update({ user: user.id })} defaultValues={values}>
     {({ fields, components, groups }) => (
         <>
             <fields.first_name />
@@ -26,7 +26,7 @@ Each mounted `Form` owns an independent Effect form session. Bound component ide
 For direct form access:
 
 ```tsx
-const profile = useForm(update.form({ user: user.id }), { defaultValues: values });
+const profile = useForm(update({ user: user.id }), { defaultValues: values });
 // profile.form exposes typed Field, Subscribe, value updates, reset, submit, and cancellation.
 return <Form form={profile} />;
 ```
@@ -35,7 +35,7 @@ Field reads below optional or nullable containers include `undefined`; dynamic a
 
 Numeric object keys support dot and bracket paths and retain their declared value types. Structural helpers (`append`, `remove`, and `move`) accept dynamic arrays. Tuples, including tuples with a variadic rest, require slot edits or a whole-field replacement so their fixed positions and lengths remain intact.
 
-Validation runs only on submit. Generated constraints produce native Effect schemas. The session decodes the captured draft with `Schema.decodeUnknownEffect` before submitting, mapping schema issues to field and root errors. Inertia awaits the visit lifecycle, maps scoped Laravel errors into the session, forwards progress, and cancels the instance's own visit on cancellation/unmount. A driver returns an Effect producing `success`, `invalid`, `cancelled`, `failure`, or `defect`; provide `onResult` to react to the outcome. Root form errors are available at `state.errors['']`; field errors are available through field contexts.
+Validation runs only on submit. Generated constraints produce native Effect schemas. The session decodes the captured draft with `Schema.decodeUnknownEffect` before submitting, mapping schema issues to field and root errors. Descriptor callbacks receive decoded output and `{ signal, onProgress }`, returning explicit `success`, `invalid`, `cancelled`, `failure`, or `defect` results directly or through `PromiseLike`. A local `submit` callback or Effect `operation` can override descriptor execution. Provide `onResult` to react to the outcome. Root form errors are available at `state.errors['']`; field errors are available through field contexts.
 
 Native schema record keys containing dots, brackets, or other segments that field paths cannot represent produce root validation errors. Their validation messages remain available without turning an invalid draft into a submission defect.
 
@@ -45,6 +45,4 @@ Execution snapshots freeze the result envelope and validation messages while pre
 
 Hidden or unmounted React owners suppress progress and result callbacks. Notifications produced before layout activation are deferred until the owner is active; cancellation, reset, and replacement submissions discard stale queued callbacks.
 
-An Inertia global `before` veto settles as `cancelled`, even though Inertia emits no visit completion callback. Detection observes the native event in the window capture phase, is scoped to the exact visit, and supports asynchronous dispatch by injected routers. Injected routers need only `visit` and must follow Inertia's visit lifecycle. Cancellation during `before` dispatch prevents visit acceptance.
-
-An Inertia transport payload must be a plain record or `FormData`. Nested values support plain records, arrays, strings, booleans, null/undefined, finite numbers, valid dates, and files/blobs. Unsupported application objects, nonfinite numbers, invalid dates, and cyclic containers return `failure` before starting a visit.
+Transport behavior belongs to the callback producer. See [generated Fetch and Inertia callbacks](../submission/inertia.mdx) for the Composer integration. No runtime driver registry is required.
