@@ -67,9 +67,10 @@ function issues(
 describe('portable contracts', () => {
     it('accepts concrete option dependencies and rejects wildcard-relative or local resolution inputs', () => {
         expect.hasAssertions();
+        const define = defineForm<{ party: number }>();
         const source = { kind: 'source', id: 'Party:party', inputs: [], resolveInputs: [] } as const;
         const make = (name: string, options: NonNullable<FieldDefinition['options']>) =>
-            defineForm<{ party: number }>()({
+            define({
                 id: 'Party',
                 defaultValues: { party: 99 },
                 fields: { party: field(name, { type: 'integer', options }) },
@@ -158,15 +159,6 @@ describe('portable contracts', () => {
 
     it('converts only literal true and false conditional parameters for boolean dependencies', () => {
         expect.hasAssertions();
-        const definition = (values: ReadonlyArray<string | number | boolean>) => ({
-            defaultValues: {},
-            fields: {
-                details: field('details', {
-                    nullable: true,
-                    constraints: { requiredWhen: [{ field: 'trigger', operator: 'equals', values }] },
-                }),
-            },
-        });
         const comparisons = [
             { values: ['1', 1], trigger: true },
             { values: ['0', 0], trigger: false },
@@ -176,14 +168,22 @@ describe('portable contracts', () => {
             { values: [false], trigger: false },
         ];
         const required = [{ path: ['details'], message: 'Details is required.' }];
-        expect(comparisons.map(({ values, trigger }) => issues(definition(values), { trigger }))).toStrictEqual([
-            [],
-            [],
-            required,
-            required,
-            required,
-            required,
-        ]);
+        expect(
+            comparisons.map(({ values, trigger }) =>
+                issues(
+                    {
+                        defaultValues: {},
+                        fields: {
+                            details: field('details', {
+                                nullable: true,
+                                constraints: { requiredWhen: [{ field: 'trigger', operator: 'equals', values }] },
+                            }),
+                        },
+                    },
+                    { trigger },
+                ),
+            ),
+        ).toStrictEqual([[], [], required, required, required, required]);
         expect(
             resolveConstraints(
                 { requiredWhen: [{ field: 'trigger', operator: 'notEquals', values: ['1'] }] },

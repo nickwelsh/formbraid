@@ -97,6 +97,112 @@ export function defineConfig<
     });
 }
 
+function useFormImplementation<
+    TValues extends object,
+    const TFields extends Readonly<Record<string, FieldDefinition>>,
+    const TGroups extends Readonly<Record<string, GroupDefinition>>,
+    TOutput = TValues,
+    TSuccess = void,
+    TError = unknown,
+    TServices = never,
+    TSchemaServices = never,
+>(
+    input:
+        | FormDefinition<TValues, TFields, TGroups, TOutput, TSchemaServices>
+        | FormDescriptor<TValues, TFields, TGroups, TOutput, TSuccess, TError, TSchemaServices>,
+    options: Partial<FormOptions<TValues, TOutput, TSuccess, TError, TServices, TSchemaServices>> = {},
+): FormInstance<TValues, TFields, TGroups, TOutput, TSuccess, TError, TServices, TSchemaServices> {
+    const sessionOptions = resolveForm(input, options);
+    const { definition } = sessionOptions;
+    // Executable React bindings stay on the descriptor/instance, never the core definition.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- React-only descriptor extensions are erased by the core descriptor contract.
+    const optionSources = 'optionSources' in input ? (input.optionSources as OptionSourceBinding) : undefined;
+    // oxlint-disable-next-line react/hook-use-state -- Sessions are constructed once; their own subscriptions publish state.
+    const [session] = useState(() => createFormSession(sessionOptions));
+    const lifetime = useRef({ mounted: false, options });
+    // oxlint-disable-next-line react/hook-use-state -- The form API and its component identities are mount-only.
+    const [form] = useState(() => createFormApi(session));
+    // Install only committed options, before descendants can submit from layout effects.
+    useInsertionEffect(() => {
+        lifetime.current.options = options;
+        session.updateOptions({
+            ...sessionOptions,
+            onResult: (result) => {
+                const { current } = lifetime;
+                if (current.mounted && current.options.onResult !== undefined) {
+                    notify(current.options.onResult, result);
+                } else if (!current.mounted && result.status !== 'cancelled') {
+                    const { execution } = session.getSnapshot();
+                    if (execution.status === result.status) {
+                        // A supplied runner may fail synchronously in a child's layout effect.
+                        // Deliver after activation only while that terminal execution remains current.
+                        queueMicrotask(() => {
+                            const observer = current.options.onResult;
+                            if (
+                                current.mounted &&
+                                observer !== undefined &&
+                                session.getSnapshot().execution === execution
+                            ) {
+                                notify(observer, result);
+                            }
+                        });
+                    }
+                }
+            },
+        });
+    });
+    useInsertionEffect(() => {
+        const { current } = lifetime;
+        // oxlint-disable-next-line eslint/init-declarations -- No progress is available before a submission.
+        let progress: UploadProgress | undefined;
+        const unsubscribe = session.subscribe(() => {
+            const next = session.getSnapshot().progress;
+            if (next === progress) {
+                return;
+            }
+            // Observers can publish synchronously; retain their newer or cleared progress.
+            progress = next;
+            if (next !== undefined && lifetime.current.options.onProgress !== undefined) {
+                const deliver = () => {
+                    const observer = lifetime.current.options.onProgress;
+                    if (current.mounted && observer !== undefined && session.getSnapshot().progress === next) {
+                        notify(observer, next);
+                    }
+                };
+                if (current.mounted) {
+                    deliver();
+                } else {
+                    // Child layout effects precede the owner's setup. Initially hidden Activity
+                    // owners never run that setup; canceled/replaced progress must not replay.
+                    queueMicrotask(deliver);
+                }
+            }
+        });
+        return () => {
+            current.mounted = false;
+            unsubscribe();
+        };
+    }, [session, lifetime]);
+    useLayoutEffect(() => {
+        // StrictMode replays layout effects without replaying insertion effects.
+        const { current } = lifetime;
+        current.mounted = true;
+        return () => {
+            current.mounted = false;
+            session.cancel();
+        };
+    }, [session, lifetime]);
+    return useMemo(
+        () => ({
+            definition,
+            form,
+            cancel: session.cancel,
+            ...(optionSources === undefined ? {} : { optionSources }),
+        }),
+        [definition, form, session, optionSources],
+    );
+}
+
 export function createFormbraid<
     const TFieldComponents extends ComponentRegistry,
     const TComponents extends ComponentRegistry,
@@ -110,112 +216,6 @@ export function createFormbraid<
         components: new Map(),
     };
     const groupRegistry = config.fieldGroups ?? {};
-
-    function useFormImplementation<
-        TValues extends object,
-        const TFields extends Readonly<Record<string, FieldDefinition>>,
-        const TGroups extends Readonly<Record<string, GroupDefinition>>,
-        TOutput = TValues,
-        TSuccess = void,
-        TError = unknown,
-        TServices = never,
-        TSchemaServices = never,
-    >(
-        input:
-            | FormDefinition<TValues, TFields, TGroups, TOutput, TSchemaServices>
-            | FormDescriptor<TValues, TFields, TGroups, TOutput, TSuccess, TError, TSchemaServices>,
-        options: Partial<FormOptions<TValues, TOutput, TSuccess, TError, TServices, TSchemaServices>> = {},
-    ): FormInstance<TValues, TFields, TGroups, TOutput, TSuccess, TError, TServices, TSchemaServices> {
-        const sessionOptions = resolveForm(input, options);
-        const { definition } = sessionOptions;
-        // Executable React bindings stay on the descriptor/instance, never the core definition.
-        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- React-only descriptor extensions are erased by the core descriptor contract.
-        const optionSources = 'optionSources' in input ? (input.optionSources as OptionSourceBinding) : undefined;
-        // oxlint-disable-next-line react/hook-use-state -- Sessions are constructed once; their own subscriptions publish state.
-        const [session] = useState(() => createFormSession(sessionOptions));
-        const lifetime = useRef({ mounted: false, options });
-        // oxlint-disable-next-line react/hook-use-state -- The form API and its component identities are mount-only.
-        const [form] = useState(() => createFormApi(session));
-        // Install only committed options, before descendants can submit from layout effects.
-        useInsertionEffect(() => {
-            lifetime.current.options = options;
-            session.updateOptions({
-                ...sessionOptions,
-                onResult: (result) => {
-                    const { current } = lifetime;
-                    if (current.mounted && current.options.onResult !== undefined) {
-                        notify(current.options.onResult, result);
-                    } else if (!current.mounted && result.status !== 'cancelled') {
-                        const { execution } = session.getSnapshot();
-                        if (execution.status === result.status) {
-                            // A supplied runner may fail synchronously in a child's layout effect.
-                            // Deliver after activation only while that terminal execution remains current.
-                            queueMicrotask(() => {
-                                const observer = current.options.onResult;
-                                if (
-                                    current.mounted &&
-                                    observer !== undefined &&
-                                    session.getSnapshot().execution === execution
-                                ) {
-                                    notify(observer, result);
-                                }
-                            });
-                        }
-                    }
-                },
-            });
-        });
-        useInsertionEffect(() => {
-            const { current } = lifetime;
-            // oxlint-disable-next-line eslint/init-declarations -- No progress is available before a submission.
-            let progress: UploadProgress | undefined;
-            const unsubscribe = session.subscribe(() => {
-                const next = session.getSnapshot().progress;
-                if (next === progress) {
-                    return;
-                }
-                // Observers can publish synchronously; retain their newer or cleared progress.
-                progress = next;
-                if (next !== undefined && lifetime.current.options.onProgress !== undefined) {
-                    const deliver = () => {
-                        const observer = lifetime.current.options.onProgress;
-                        if (current.mounted && observer !== undefined && session.getSnapshot().progress === next) {
-                            notify(observer, next);
-                        }
-                    };
-                    if (current.mounted) {
-                        deliver();
-                    } else {
-                        // Child layout effects precede the owner's setup. Initially hidden Activity
-                        // owners never run that setup; canceled/replaced progress must not replay.
-                        queueMicrotask(deliver);
-                    }
-                }
-            });
-            return () => {
-                current.mounted = false;
-                unsubscribe();
-            };
-        }, [session, lifetime]);
-        useLayoutEffect(() => {
-            // StrictMode replays layout effects without replaying insertion effects.
-            const { current } = lifetime;
-            current.mounted = true;
-            return () => {
-                current.mounted = false;
-                session.cancel();
-            };
-        }, [session, lifetime]);
-        return useMemo(
-            () => ({
-                definition,
-                form,
-                cancel: session.cancel,
-                ...(optionSources === undefined ? {} : { optionSources }),
-            }),
-            [definition, form, session, optionSources],
-        );
-    }
 
     // The public overloads restrict omitted options to service-free definitions.
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- TypeScript erases service defaults while comparing generic overload returns; the input overload keeps serviceful definitions paired with a runner.

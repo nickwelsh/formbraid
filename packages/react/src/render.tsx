@@ -158,6 +158,7 @@ function fieldTree(
         return { binding: component, paths };
     }
     const binding = cached(identities.containers, JSON.stringify(paths), () => {
+        // oxlint-disable-next-line unicorn/consistent-function-scoping -- Each cached layout needs its own component identity and immutable child bindings.
         function BoundContainer(props: Record<string, unknown>): ReactNode {
             return createElement(component, props);
         }
