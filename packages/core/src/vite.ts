@@ -8,4 +8,5 @@ export type {
     RegistryManifest,
     TypeShape,
 } from './tooling/contracts.js';
-export { inspectRegistries } from './tooling/inspect.js';
+export { inspectRegistries, inspectComponents } from './tooling/inspect.js';
+export { vitePlugin } from './tooling/plugin.js';

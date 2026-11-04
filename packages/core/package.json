@@ -35,5 +35,13 @@
     "dependencies": {
         "effect": "4.0.2",
         "typescript-api": "npm:typescript@^5.9.3"
+    },
+    "peerDependencies": {
+        "vite": ">=7"
+    },
+    "peerDependenciesMeta": {
+        "vite": {
+            "optional": true
+        }
     }
 }

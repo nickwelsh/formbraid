@@ -1,6 +1,13 @@
 import path from 'node:path';
 import ts from 'typescript-api';
-import type { ComponentInfo, ModuleExport, PropShape, RegistryManifest, TypeShape } from './contracts.js';
+import type {
+    ComponentInfo,
+    ComponentMetadata,
+    ModuleExport,
+    PropShape,
+    RegistryManifest,
+    TypeShape,
+} from './contracts.js';
 
 interface Session {
     readonly program: ts.Program;
@@ -242,8 +249,16 @@ function groupSlots(
     );
 }
 
-function componentInfo(component: ts.Symbol, checker: ts.TypeChecker, node: ts.SourceFile): ComponentInfo {
-    if (!/^[A-Z]\w*$/u.test(component.name) || ['AppField', 'AppForm', 'Field', 'Subscribe'].includes(component.name)) {
+function componentInfo(
+    component: ts.Symbol,
+    context: { checker: ts.TypeChecker; node: ts.SourceFile },
+    modern: boolean,
+): ComponentInfo {
+    const { checker, node } = context;
+    if (
+        !(modern ? /^[A-Za-z_]\w*$/u : /^[A-Z]\w*$/u).test(component.name) ||
+        ['AppField', 'AppForm', 'Field', 'Subscribe', '__proto__', 'constructor', 'prototype'].includes(component.name)
+    ) {
         throw new Error(`Invalid or reserved component key: ${component.name}. Use a PascalCase component name.`);
     }
     const location = component.valueDeclaration ?? node;
@@ -326,7 +341,11 @@ function callOptions(expression: ts.Expression, checker: ts.TypeChecker, name: s
     return resolved.arguments[0];
 }
 
-function registry(expression: ts.Expression | undefined, session: Session): Record<string, ComponentInfo> {
+function registry(
+    expression: ts.Expression | undefined,
+    session: Session,
+    modern = false,
+): Record<string, ComponentInfo> {
     if (expression === undefined) {
         return {};
     }
@@ -339,13 +358,14 @@ function registry(expression: ts.Expression | undefined, session: Session): Reco
             .getProperties()
             .map((component) => [
                 component.name,
-                componentInfo(component, session.checker, expression.getSourceFile()),
+                componentInfo(component, { checker: session.checker, node: expression.getSourceFile() }, modern),
             ]),
     );
 }
 
-export function inspectRegistries(module: string, root: string): RegistryManifest {
+export function inspectComponents(module: string, root: string): ComponentMetadata {
     const configPath = ts.findConfigFile(root, (filename) => ts.sys.fileExists(filename));
+    const configs = new Set<string>();
     let compilerOptions: ts.CompilerOptions = {
         strict: true,
         jsx: ts.JsxEmit.ReactJSX,
@@ -357,29 +377,75 @@ export function inspectRegistries(module: string, root: string): RegistryManifes
         if (config.error !== undefined) {
             throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, '\n'));
         }
-        compilerOptions = ts.parseJsonConfigFileContent(config.config, ts.sys, path.dirname(configPath)).options;
+        configs.add(configPath);
+        compilerOptions = ts.parseJsonConfigFileContent(
+            config.config,
+            {
+                ...ts.sys,
+                readFile: (filename) => {
+                    configs.add(filename);
+                    return ts.sys.readFile(filename);
+                },
+            },
+            path.dirname(configPath),
+        ).options;
     }
     const program = ts.createProgram([path.resolve(root, module)], compilerOptions);
     const session = { program, checker: program.getTypeChecker(), root };
-    const setup = exported({ module, export: 'default' }, session);
-    const declaration = setup.symbol.valueDeclaration;
-    const expression =
-        declaration !== undefined && ts.isExportAssignment(declaration)
-            ? declaration.expression
-            : initializerOf(setup.symbol, session.checker);
+    const source = program.getSourceFile(path.resolve(root, module));
+    if (source === undefined) {
+        throw new Error(`Cannot inspect module ${module}.`);
+    }
+    const calls: Array<ts.CallExpression> = [];
+    function visit(node: ts.Node): void {
+        if (ts.isCallExpression(node) && callName(node, session.checker) === 'defineConfig') {
+            calls.push(node);
+        }
+        ts.forEachChild(node, visit);
+    }
+    visit(source);
+    const modern = calls.length === 1;
+    if (calls.length > 1) {
+        throw new Error('A component module must contain exactly one defineConfig setup.');
+    }
+    let expression: ts.Expression | undefined = calls[0];
+    if (!modern) {
+        const setup = exported({ module, export: 'default' }, session);
+        const declaration = setup.symbol.valueDeclaration;
+        expression =
+            declaration !== undefined && ts.isExportAssignment(declaration)
+                ? declaration.expression
+                : initializerOf(setup.symbol, session.checker);
+    }
     if (expression === undefined) {
         throw new Error('The form module must default-export its createFormbraid setup.');
     }
-    const options = callOptions(expression, session.checker, 'createFormbraid');
-    const fields = option(options, 'fieldComponents', session.checker);
+    const options = callOptions(expression, session.checker, modern ? 'defineConfig' : 'createFormbraid');
+    const fields = option(options, modern ? 'components' : 'fieldComponents', session.checker);
     const components = option(options, 'formComponents', session.checker);
-    const groups = option(options, 'fieldGroups', session.checker);
-    if (fields === undefined || components === undefined) {
+    const groups = option(options, modern ? 'groups' : 'fieldGroups', session.checker);
+    if (fields === undefined || (!modern && components === undefined)) {
         throw new Error('createFormbraid must register fieldComponents and formComponents.');
     }
     return {
-        fields: registry(fields, session),
-        components: registry(components, session),
-        groups: registry(groups, session),
+        version: 1,
+        inputs: [
+            ...new Set([
+                ...program
+                    .getSourceFiles()
+                    .map((file) => file.fileName)
+                    .filter((file) => !file.includes('/node_modules/')),
+                ...configs,
+            ]),
+            // oxlint-disable-next-line unicorn/no-array-sort -- This fresh list is sorted without requiring ES2023 in browser-facing declarations.
+        ].sort(),
+        fields: registry(fields, session, modern),
+        components: registry(components, session, modern),
+        groups: registry(groups, session, modern),
     };
+}
+
+export function inspectRegistries(module: string, root: string): RegistryManifest {
+    const { fields, components, groups } = inspectComponents(module, root);
+    return { fields, components, groups };
 }
