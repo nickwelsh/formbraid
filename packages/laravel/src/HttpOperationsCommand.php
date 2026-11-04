@@ -19,13 +19,24 @@ final class HttpOperationsCommand extends Command
 
     public function handle(Router $router): int
     {
+        $this->line(json_encode(['version' => 1, 'operations' => self::operations($router)], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        return self::SUCCESS;
+    }
+
+    /** @return list<array{name: string, schema: class-string, parameters: list<array{name: string, optional: bool}>, binding: array{uri: string, method: string}, controller?: string, action?: string}> */
+    public static function operations(Router $router, bool $includeActions = false): array
+    {
         $operations = [];
         foreach ($router->getRoutes()->getRoutes() as $route) {
             $action = $route->getAction('uses');
+            $controller = null;
+            $handler = null;
             if ($action instanceof \Closure) {
                 $reflection = new ReflectionFunction($action);
             } elseif (is_string($action) && str_contains($action, '@')) {
                 [$controller, $method] = explode('@', $action, 2);
+                $handler = $method;
                 $reflection = new ReflectionMethod($controller, $method);
             } else {
                 continue;
@@ -67,17 +78,21 @@ final class HttpOperationsCommand extends Command
                 if (count($methods) > 1) {
                     $name .= '.'.strtolower($method);
                 }
-                $operations[] = [
+                $operation = [
                     'name' => $name,
                     'schema' => $requests[0],
                     'parameters' => $parameters,
                     'binding' => ['uri' => $route->uri(), 'method' => strtolower($method)],
                 ];
+                if ($includeActions && $controller !== null) {
+                    $operation['controller'] = $controller;
+                    $operation['action'] = $handler;
+                }
+                $operations[] = $operation;
             }
         }
         usort($operations, static fn (array $left, array $right): int => strcmp($left['name'], $right['name']));
-        $this->line(json_encode(['version' => 1, 'operations' => $operations], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
-        return self::SUCCESS;
+        return $operations;
     }
 }

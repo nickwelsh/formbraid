@@ -16,7 +16,7 @@ final class FormbraidServiceProvider extends ServiceProvider
     public function boot(): void
     {
         if ($this->app->runningInConsole()) {
-            $this->commands([ExportCommand::class, HttpOperationsCommand::class]);
+            $this->commands([GenerateCommand::class, ExportCommand::class, HttpOperationsCommand::class]);
             $this->publishes([__DIR__.'/../config/formbraid.php' => config_path('formbraid.php')], 'formbraid-config');
         }
     }

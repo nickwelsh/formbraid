@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 return [
     'requests' => ['app/Http/Requests'],
+    'metadata' => 'resources/js/formbraid/_metadata.json',
+    'output' => 'resources/js/formbraid/laravel',
+    'component_enum' => 'app/Formbraid/FormField.php',
+    // Supply a class implementing Formbraid\Laravel\Contracts\SubmissionDriver.
+    'submission_driver' => null,
     'enums' => [
         'fields' => 'App\\Enums\\FormField',
         'components' => 'App\\Enums\\FormComponent',
