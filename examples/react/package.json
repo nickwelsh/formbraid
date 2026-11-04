@@ -8,9 +8,6 @@
     },
     "dependencies": {
         "@formbraid/core": "workspace:*",
-        "@formbraid/generator": "workspace:*",
-        "@formbraid/inertia": "workspace:*",
-        "@formbraid/laravel": "workspace:*",
         "@formbraid/react": "workspace:*",
         "effect": "4.0.2",
         "react": "^19.2.0",

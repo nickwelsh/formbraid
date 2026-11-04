@@ -141,15 +141,6 @@ importers:
       '@formbraid/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@formbraid/generator':
-        specifier: workspace:*
-        version: link:../../packages/generator
-      '@formbraid/inertia':
-        specifier: workspace:*
-        version: link:../../packages/inertia
-      '@formbraid/laravel':
-        specifier: workspace:*
-        version: link:../../packages/laravel
       '@formbraid/react':
         specifier: workspace:*
         version: link:../../packages/react

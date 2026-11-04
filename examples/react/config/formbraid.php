@@ -1,14 +1,17 @@
 <?php
 
 declare(strict_types=1);
-use Example\Enums\FormComponent;
-use Example\Enums\FormField;
-use Example\Enums\FormGroup;
+use Formbraid\Laravel\Drivers\Fetch;
 
 return [
-    'enums' => [
-        'fields' => FormField::class,
-        'components' => FormComponent::class,
-        'groups' => FormGroup::class,
+    'requests' => ['php/**/*Request.php'],
+    'metadata' => 'src/_metadata.json',
+    'output' => 'src/generated',
+    'component_enum' => 'php/Enums/FormField.php',
+    'submission_driver' => Fetch::class,
+    'fields' => [
+        'types' => ['string' => 'TextField', 'boolean' => 'CheckboxField'],
+        'rules' => ['email' => ['component' => 'TextField', 'props' => ['type' => 'email']]],
+        'fallbackType' => 'string',
     ],
 ];

@@ -1,25 +1,24 @@
-import type { SubmissionDriver } from '@formbraid/core';
-import { Effect } from 'effect';
-import { useState } from 'react';
+import type { SubmissionResult } from '@formbraid/core';
+import { useEffect, useState } from 'react';
 import { Form } from './forms.js';
-import { update } from './generated/actions/profile.js';
+import { update } from './generated/controllers/Example/Http/Controllers/ProfileController.js';
 import { MassiveFormBenchmark } from './massive-form-benchmark.js';
 import './style.css';
 
 function ProfileExample() {
-    const [submitted, setSubmitted] = useState<object | null>(null);
-    const submission: SubmissionDriver = {
-        submit: ({ data }) =>
-            Effect.sync(() => {
-                setSubmitted(data);
-                return { status: 'success' as const };
-            }),
-    };
+    const [submitted, setSubmitted] = useState(false);
+    useEffect(() => {
+        // A Laravel-rendered page already sets this cookie. The standalone Vite example requests it once.
+        void fetch('/csrf-cookie', { credentials: 'same-origin' });
+    }, []);
+    function handleResult(result: SubmissionResult) {
+        setSubmitted(result.status === 'success');
+    }
     return (
         <main>
             <h1>Formbraid</h1>
             <p>Laravel rules, application fields, and one address input.</p>
-            <Form form={update.form({ user: 42 })} submission={submission}>
+            <Form form={update({ user: 42 })} onResult={handleResult}>
                 {({ fields, components, groups }) => (
                     <>
                         <fields.name />
@@ -32,12 +31,12 @@ function ProfileExample() {
                     </>
                 )}
             </Form>
-            {submitted === null ? null : (
+            {submitted ? (
                 <section>
-                    <h2>Submitted Laravel Fields</h2>
-                    <pre>{JSON.stringify(submitted, null, 2)}</pre>
+                    <h2>Saved by Laravel</h2>
+                    <output>The generated Fetch handler submitted the form with cookie-based CSRF protection.</output>
                 </section>
-            )}
+            ) : null}
         </main>
     );
 }

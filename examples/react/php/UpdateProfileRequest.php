@@ -5,13 +5,17 @@ declare(strict_types=1);
 namespace Example;
 
 use Example\Enums\FormField;
-use Example\Enums\FormGroup;
 use Formbraid\Laravel\Field;
 use Formbraid\Laravel\FieldGroup;
 use Illuminate\Foundation\Http\FormRequest;
 
 final class UpdateProfileRequest extends FormRequest
 {
+    public function authorize(): bool
+    {
+        return true;
+    }
+
     public function rules(): array
     {
         return [
@@ -34,15 +38,8 @@ final class UpdateProfileRequest extends FormRequest
 
     public function groups(): array
     {
-        return ['address' => FieldGroup::make(FormGroup::AddressAutocomplete)->label('Delivery Address')->fields([
+        return ['address' => FieldGroup::make(FormField::AddressAutocomplete)->label('Delivery Address')->fields([
             'line1' => 'address_line_1', 'line2' => 'address_line_2', 'city' => 'city', 'state' => 'state', 'postalCode' => 'zip',
         ])];
-    }
-
-    public static function fieldConfig(): array
-    {
-        return ['fields' => ['types' => ['string' => FormField::TextField, 'boolean' => FormField::CheckboxField], 'rules' => [
-            'email' => ['component' => FormField::TextField, 'props' => ['type' => 'email']],
-        ], 'fallbackType' => 'string']];
     }
 }
