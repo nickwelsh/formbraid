@@ -318,7 +318,7 @@ export default {
             'vitest/prefer-importing-vitest-globals': 'error',
             'vitest/no-importing-vitest-globals': 'off',
         },
-        ignorePatterns: ['**/node_modules/**', '**/dist/**', '**/vendor/**', '.agents', '.codex'],
+        ignorePatterns: ['**/node_modules/**', '**/dist/**', '**/vendor/**', '**/generated/**', '.agents', '.codex'],
     },
     fmt: {
         semi: true,
@@ -326,7 +326,7 @@ export default {
         printWidth: 120,
         tabWidth: 4,
         sortPackageJson: true,
-        ignorePatterns: ['**/vendor/**', '**/dist/**'],
+        ignorePatterns: ['**/vendor/**', '**/dist/**', '**/generated/**'],
         overrides: [{ files: ['**/*.{yaml,yml}'], options: { tabWidth: 2 } }],
     },
     resolve: {
@@ -349,7 +349,7 @@ export default {
     test: {
         globals: true,
         testTimeout: 10_000,
-        include: ['packages/**/*.test.{ts,tsx}'],
+        include: ['packages/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts'],
         environment: 'jsdom',
         restoreMocks: true,
     },

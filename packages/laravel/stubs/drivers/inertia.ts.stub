@@ -1,0 +1,85 @@
+(values, context) => new Promise<{ status: 'success' } | { status: 'invalid'; errors: Record<string, string | Array<string>> } | { status: 'cancelled' } | { status: 'failure'; error: unknown }>((resolve) => {
+    let settled = false;
+    let cancel: (() => void) | undefined;
+    let cancelled = false;
+    let beforeVisit: unknown;
+    let beforeEvent: Event | undefined;
+    const finish = (result: Parameters<typeof resolve>[0]): void => {
+        if (settled) return;
+        settled = true;
+        context.signal.removeEventListener('abort', abort);
+        window.removeEventListener('inertia:before', observeBefore, true);
+        resolve(result);
+    };
+    const abort = (): void => {
+        if (settled) return;
+        cancelled = true;
+        if (beforeEvent !== undefined && beforeEvent.eventPhase !== 0) beforeEvent.preventDefault();
+        finish({ status: 'cancelled' });
+        try { cancel?.(); } catch { /* Cancellation has already settled the callback. */ }
+    };
+    const observeBefore = (event: Event): void => {
+        if (beforeVisit === undefined || !(event instanceof CustomEvent) || event.detail?.visit !== beforeVisit) return;
+        beforeEvent = event;
+        queueMicrotask(() => {
+            if (!settled && event.defaultPrevented) finish({ status: 'cancelled' });
+        });
+    };
+    if (context.signal.aborted) {
+        finish({ status: 'cancelled' });
+        return;
+    }
+    context.signal.addEventListener('abort', abort, { once: true });
+    // Attach before importing so cancellation during module loading is prompt and prevents the visit.
+    import('@inertiajs/react').then(({ router }) => {
+        if (settled) return;
+        const method = __FORMBRAID_METHOD__ as 'get' | 'post' | 'put' | 'patch' | 'delete';
+        const hasFiles = (value: unknown, parents = new WeakSet<object>()): boolean => {
+            if (value instanceof Blob) return true;
+            if (value === null || typeof value !== 'object') return false;
+            if (parents.has(value)) throw new TypeError('Cannot submit cyclic form values.');
+            parents.add(value);
+            const found = Object.values(value).some((item: unknown) => hasFiles(item, parents));
+            parents.delete(value);
+            return found;
+        };
+        const files = hasFiles(values);
+        if (method === 'get' && files) throw new TypeError('GET forms cannot upload files.');
+        const spoof = files && method !== 'get' && method !== 'post';
+        const targetUrl = __FORMBRAID_ENDPOINT__;
+        if (settled || context.signal.aborted) { abort(); return; }
+        window.addEventListener('inertia:before', observeBefore, true);
+        const options = {
+            method: spoof ? 'post' as const : method,
+            data: spoof ? { ...values, _method: method } : values,
+            onBefore: (visit: unknown): boolean => { beforeVisit = visit; return !settled && !context.signal.aborted; },
+            onCancelToken: (token: { cancel: () => void }): void => {
+                cancel = () => token.cancel();
+                if (cancelled) { try { cancel(); } catch { /* Already cancelled. */ } }
+            },
+            onSuccess: (): void => finish({ status: 'success' }),
+            onError: (errors: unknown): void => {
+                if (errors === null || typeof errors !== 'object' || Array.isArray(errors) || Object.keys(errors).length === 0 ||
+                    !Object.entries(errors).every(([key, messages]) => key !== '' && (typeof messages === 'string' ? messages.length > 0 : Array.isArray(messages) && messages.length > 0 && messages.every((message: unknown) => typeof message === 'string' && message.length > 0)))) {
+                    finish({ status: 'failure', error: new Error('Malformed Inertia validation errors.') });
+                    return;
+                }
+                finish({ status: 'invalid', errors: errors as Record<string, string | Array<string>> });
+            },
+            onCancel: (): void => finish({ status: 'cancelled' }),
+            onFinish: (): void => finish({ status: 'failure', error: new Error('The Inertia visit finished without an outcome.') }),
+            onProgress: (progress: { loaded: number; total?: number | undefined; percentage?: number | undefined } | undefined): void => {
+                if (settled || progress === undefined) return;
+                try { context.onProgress({ loaded: progress.loaded, total: progress.total ?? 0, ...(progress.percentage === undefined ? {} : { percentage: progress.percentage }) }); }
+                catch (error) {
+                    finish({ status: 'failure', error });
+                    try { cancel?.(); } catch { /* The observer failure has already settled. */ }
+                }
+            },
+            onHttpException: (error: unknown): boolean => { finish({ status: 'failure', error }); return true; },
+            onNetworkError: (error: unknown): boolean => { finish({ status: 'failure', error }); return true; },
+        };
+        router.visit(targetUrl, options);
+        if (beforeEvent?.defaultPrevented === true) finish({ status: 'cancelled' });
+    }).catch((error: unknown) => finish({ status: 'failure', error }));
+})

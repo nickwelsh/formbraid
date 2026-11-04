@@ -1,0 +1,79 @@
+async (values, context) => {
+    try {
+        if (context.signal.aborted) return { status: 'cancelled' as const };
+        const method = __FORMBRAID_METHOD__ as 'get' | 'post' | 'put' | 'patch' | 'delete';
+        const url = new URL(__FORMBRAID_ENDPOINT__, window.location.href);
+        if (url.origin !== window.location.origin || !['http:', 'https:'].includes(url.protocol)) {
+            throw new Error('Form submissions must use a same-origin HTTP URL.');
+        }
+        const hasFiles = (value: unknown, parents = new WeakSet<object>()): boolean => {
+            if (value instanceof Blob) return true;
+            if (value === null || typeof value !== 'object') return false;
+            if (parents.has(value)) throw new TypeError('Cannot submit cyclic form values.');
+            parents.add(value);
+            const found = Object.values(value).some((item: unknown) => hasFiles(item, parents));
+            parents.delete(value);
+            return found;
+        };
+        const files = hasFiles(values);
+        const headers: Record<string, string> = { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
+        // Read the current Laravel cookie for every submission, never when the module is generated or imported.
+        const cookie = document.cookie.split(';').map((part) => part.trim()).find((part) => part.startsWith('XSRF-TOKEN='));
+        if (cookie !== undefined) headers['X-XSRF-TOKEN'] = decodeURIComponent(cookie.slice('XSRF-TOKEN='.length));
+        let body: string | FormData | undefined;
+        let requestMethod: string = method.toUpperCase();
+        const walk = (value: unknown, key: string, append: (key: string, value: string | Blob) => void, parents = new WeakSet<object>()): void => {
+            if (value === undefined) return;
+            if (value instanceof Blob) {
+                append(key, value);
+            } else if (value instanceof Date) {
+                append(key, value.toISOString());
+            } else if (value !== null && typeof value === 'object') {
+                if (parents.has(value)) throw new TypeError('Cannot submit cyclic form values.');
+                parents.add(value);
+                for (const [name, item] of Object.entries(value)) walk(item, key === '' ? name : `${key}[${name}]`, append, parents);
+                parents.delete(value);
+            } else if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) {
+                append(key, value === null ? '' : typeof value === 'boolean' ? (value ? '1' : '0') : String(value));
+            } else {
+                throw new TypeError('The form contains a value that cannot be submitted.');
+            }
+        };
+        if (method === 'get') {
+            // GET values are a nested Laravel query, never a request body or a binary upload.
+            if (files) throw new TypeError('GET forms cannot upload files.');
+            walk(values, '', (key, value) => url.searchParams.append(key, String(value)));
+        } else if (files) {
+            const multipart = new FormData();
+            walk(values, '', (key, value) => multipart.append(key, value));
+            if (method !== 'post') {
+                multipart.set('_method', method);
+                requestMethod = 'POST';
+            }
+            body = multipart;
+            // The browser owns the multipart boundary. Never set Content-Type here.
+        } else {
+            // DELETE deliberately retains a JSON body, just like POST/PUT/PATCH.
+            body = JSON.stringify(values);
+            headers['Content-Type'] = 'application/json';
+        }
+        if (context.signal.aborted) return { status: 'cancelled' as const };
+        const response = await fetch(url.href, { method: requestMethod, headers, ...(body === undefined ? {} : { body }), mode: 'same-origin', credentials: 'same-origin', signal: context.signal });
+        if (context.signal.aborted) return { status: 'cancelled' as const };
+        if (response.status === 422) {
+            const payload: unknown = await response.json();
+            if (context.signal.aborted) return { status: 'cancelled' as const };
+            const errors: unknown = typeof payload === 'object' && payload !== null && 'errors' in payload ? payload.errors : undefined;
+            if (errors === null || typeof errors !== 'object' || Array.isArray(errors) || Object.keys(errors).length === 0 ||
+                !Object.entries(errors).every(([key, messages]) => key !== '' && (typeof messages === 'string' ? messages.length > 0 : Array.isArray(messages) && messages.length > 0 && messages.every((message: unknown) => typeof message === 'string' && message.length > 0)))) {
+                throw new Error('Malformed Laravel validation error response.');
+            }
+            return { status: 'invalid' as const, errors: errors as Record<string, string | Array<string>> };
+        }
+        if (!response.ok) throw new Error(`Form submission failed with HTTP ${response.status}.`);
+        return { status: 'success' as const };
+    } catch (error) {
+        if (context.signal.aborted || (typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError')) return { status: 'cancelled' as const };
+        return { status: 'failure' as const, error };
+    }
+}

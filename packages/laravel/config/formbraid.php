@@ -1,14 +1,15 @@
 <?php
 
 declare(strict_types=1);
+use Formbraid\Laravel\Drivers\Fetch;
 
 return [
     'requests' => ['app/Http/Requests'],
     'metadata' => 'resources/js/formbraid/_metadata.json',
     'output' => 'resources/js/formbraid/laravel',
     'component_enum' => 'app/Formbraid/FormField.php',
-    // Supply a class implementing Formbraid\Laravel\Contracts\SubmissionDriver.
-    'submission_driver' => null,
+    // Any class implementing Formbraid\Laravel\Contracts\SubmissionDriver may be resolved through the container.
+    'submission_driver' => Fetch::class,
     'enums' => [
         'fields' => 'App\\Enums\\FormField',
         'components' => 'App\\Enums\\FormComponent',
