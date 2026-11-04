@@ -37,6 +37,10 @@ final class ExportCommand extends Command
             $request->setContainer(app());
             try {
                 $extracted = $extractor->extract($request);
+                if (isset($extracted['optionSources'])) {
+                    $id = array_key_first($extracted['optionSources']);
+                    throw new \RuntimeException("Unsupported option source {$id}; use the source provider's producer to generate executable bindings.");
+                }
             } catch (\Throwable $error) {
                 throw new \RuntimeException("Cannot export {$class}: {$error->getMessage()}. Generation needs rules that can be described without live request data.", previous: $error);
             }

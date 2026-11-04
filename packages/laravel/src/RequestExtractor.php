@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Formbraid\Laravel;
 
 use BackedEnum;
+use Formbraid\Laravel\Contracts\OptionSource;
 use InvalidArgumentException;
 use ReflectionProperty;
 use Stringable;
@@ -19,7 +20,7 @@ final class RequestExtractor
         $this->config = is_array($config) ? Configuration::from($config) : $config;
     }
 
-    /** @return array{form: array{id: class-string, defaultValues: \stdClass, fields: \stdClass, groups: \stdClass}, diagnostics: list<string>} */
+    /** @return array{form: array{id: class-string, defaultValues: \stdClass, fields: \stdClass, groups: \stdClass}, diagnostics: list<string>, optionSources?: array<string, OptionSource>} */
     public function extract(object $request): array
     {
         if (! method_exists($request, 'rules')) {
@@ -36,6 +37,7 @@ final class RequestExtractor
         }
         $fields = [];
         $diagnostics = [];
+        $optionSources = [];
         foreach ($rules as $name => $fieldRules) {
             if (! is_string($name) || ! is_array($fieldRules) && ! is_string($fieldRules)) {
                 throw new InvalidArgumentException('Validation rules must map field names to strings or arrays.');
@@ -76,6 +78,26 @@ final class RequestExtractor
             if (isset($metadata['helpText'])) {
                 $fields[$name]['helpText'] = $metadata['helpText'];
             }
+            if (isset($metadata['options'])) {
+                $options = $metadata['options'];
+                $location = $request::class.'.'.$name;
+                if ($options instanceof OptionSource) {
+                    if (str_contains($name, '*')) {
+                        throw new InvalidArgumentException("{$location}: wildcard-relative option sources are not supported.");
+                    }
+                    $id = $request::class.':'.$name;
+                    $fields[$name]['options'] = [
+                        'kind' => 'source',
+                        'id' => $id,
+                        'inputs' => $this->optionInputs($options->inputs(), $rules, $location),
+                        'resolveInputs' => $this->optionInputs($options->resolveInputs(), $rules, $location, resolving: true),
+                    ];
+                    $optionSources[$id] = $options;
+                } else {
+                    $this->assertOptions($options, $location);
+                    $fields[$name]['options'] = ['kind' => 'static', 'items' => $options];
+                }
+            }
             foreach ($serverRules as $rule) {
                 $diagnostics[] = $request::class.".{$name}: {$rule} remains server validation.";
             }
@@ -111,7 +133,57 @@ final class RequestExtractor
         // Fail immediately for callbacks/resources/non-serializable component props.
         $this->assertSerializable($form);
 
-        return ['form' => $form, 'diagnostics' => $diagnostics];
+        return ['form' => $form, 'diagnostics' => $diagnostics, ...($optionSources === [] ? [] : ['optionSources' => $optionSources])];
+    }
+
+    /**
+     * @param  list<OptionInput>  $inputs
+     * @param  array<array-key, mixed>  $rules
+     * @return list<array{kind: string, path?: string, key?: string}>
+     */
+    private function optionInputs(array $inputs, array $rules, string $location, bool $resolving = false): array
+    {
+        $references = [];
+        foreach ($inputs as $input) {
+            if ($resolving && $input->kind === 'value') {
+                throw new InvalidArgumentException("{$location}: selected-ID resolution cannot depend on control-local value().");
+            }
+            if ($input->kind === 'field') {
+                $path = $input->path ?? '';
+                $this->assertPath($path);
+                if (str_contains($path, '*')) {
+                    throw new InvalidArgumentException("{$location}: wildcard-relative dependency {$path} is not supported.");
+                }
+                $known = array_key_exists($path, $rules);
+                foreach (array_keys($rules) as $rulePath) {
+                    $pattern = '/^'.str_replace('\\*', '(?:0|[1-9][0-9]*)', preg_quote((string) $rulePath, '/')).'$/D';
+                    $known = $known || preg_match($pattern, $path) === 1;
+                }
+                if (! $known) {
+                    throw new InvalidArgumentException("{$location}: unknown option dependency {$path}.");
+                }
+            }
+            $reference = $input->toArray();
+            $references[json_encode($reference, JSON_THROW_ON_ERROR)] = $reference;
+        }
+
+        return array_values($references);
+    }
+
+    /** @param array<mixed> $options */
+    private function assertOptions(array $options, string $location): void
+    {
+        if (! array_is_list($options)) {
+            throw new InvalidArgumentException("{$location}: static options must be a list of value/label pairs.");
+        }
+        foreach ($options as $option) {
+            if (! is_array($option) || ! isset($option['value'], $option['label']) ||
+                ! (is_string($option['value']) || is_int($option['value']) || is_float($option['value']) && is_finite($option['value'])) ||
+                ! is_string($option['label']) || array_diff(array_keys($option), ['value', 'label', 'disabled']) !== [] ||
+                array_key_exists('disabled', $option) && ! is_bool($option['disabled'])) {
+                throw new InvalidArgumentException("{$location}: static options require value (string/number), label (string), and optional disabled (boolean).");
+            }
+        }
     }
 
     /**

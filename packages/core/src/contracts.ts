@@ -4,6 +4,27 @@ export type JsonValue = EffectSchema.Json;
 
 export type ValueType = 'string' | 'integer' | 'number' | 'boolean' | 'date' | 'enum' | 'file' | 'array' | 'object';
 
+export interface Option {
+    readonly value: string | number;
+    readonly label: string;
+    readonly disabled?: boolean;
+}
+
+export type OptionInputReference =
+    | { readonly kind: 'value' }
+    | { readonly kind: 'field'; readonly path: string }
+    | { readonly kind: 'context'; readonly key: string };
+
+/** Presentation data, never a replacement for validation constraints.options. */
+export type FieldOptions =
+    | { readonly kind: 'static'; readonly items: ReadonlyArray<Option> }
+    | {
+          readonly kind: 'source';
+          readonly id: string;
+          readonly inputs: ReadonlyArray<OptionInputReference>;
+          readonly resolveInputs: ReadonlyArray<OptionInputReference>;
+      };
+
 export interface RequiredCondition {
     readonly field: string;
     readonly values: ReadonlyArray<JsonValue>;
@@ -30,6 +51,7 @@ export interface FieldDefinition {
     readonly label: string;
     readonly helpText?: string;
     readonly props: Readonly<Record<string, JsonValue>>;
+    readonly options?: FieldOptions;
     readonly constraints: Constraints;
     readonly nullable: boolean;
     readonly serverRules: ReadonlyArray<string>;

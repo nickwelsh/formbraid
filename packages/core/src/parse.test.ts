@@ -58,6 +58,51 @@ describe('native metadata decoding', () => {
         expect(Effect.runSync(parseExtractionEffect(json))).toStrictEqual(extraction);
     });
 
+    it('round-trips static and dynamic presentation metadata independently of finite constraints', () => {
+        expect.hasAssertions();
+        const [form] = extraction.forms;
+        const options = [
+            {
+                kind: 'static',
+                items: [
+                    { value: 0, label: 'Zero', disabled: false },
+                    { value: '0', label: 'String zero' },
+                ],
+            },
+            {
+                kind: 'source',
+                id: 'Profile:name',
+                inputs: [
+                    { kind: 'value' },
+                    { kind: 'field', path: 'preferences.enabled' },
+                    { kind: 'context', key: 'party' },
+                ],
+                resolveInputs: [{ kind: 'field', path: 'name' }],
+            },
+        ];
+        for (const declaration of options) {
+            const metadata = {
+                ...extraction,
+                forms: [{ ...form, fields: { name: { ...form.fields.name, options: declaration } } }],
+            };
+            expect(parseExtraction(JSON.stringify(metadata))).toStrictEqual(metadata);
+            expect(
+                parseExtraction(JSON.stringify(metadata)).forms[0]?.fields['name']?.constraints.options,
+            ).toBeUndefined();
+        }
+        const decode = Schema.decodeUnknownEffect(FormMetadataSchema, { onExcessProperty: 'error' });
+        for (const declaration of [
+            { kind: 'source', id: 'x', inputs: [{ kind: 'search' }], resolveInputs: [] },
+            { kind: 'static', items: [{ value: true, label: 'bad' }] },
+            { kind: 'source', id: 'x', inputs: [], resolveInputs: [], execute: () => null },
+        ]) {
+            const error = Effect.runSync(
+                Effect.flip(decode({ ...form, fields: { name: { ...form.fields.name, options: declaration } } })),
+            );
+            expect(Schema.isSchemaError(error)).toBe(true);
+        }
+    });
+
     it('rejects malformed, unsupported and excess metadata through typed schema failures', () => {
         expect.hasAssertions();
         const [form] = extraction.forms;

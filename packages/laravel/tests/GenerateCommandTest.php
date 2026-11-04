@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Formbraid\Laravel\Tests;
 
+use Formbraid\Laravel\ComponentMetadata;
 use Formbraid\Laravel\Contracts\SubmissionDriver;
 use Formbraid\Laravel\FormbraidServiceProvider;
+use Formbraid\Laravel\FormEmitter;
+use Formbraid\Laravel\RequestExtractor;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
@@ -129,6 +132,42 @@ final class GenerateCommandTest extends TestCase
         $output = Artisan::output();
         self::assertSame(1, $exit, $output);
         self::assertStringContainsString($message, $output);
+    }
+
+    public function test_unsupported_sources_fail_instead_of_generating_unbound_fields(): void
+    {
+        $request = $this->request(fields: 'return ["name" => Field::make()->options(new class implements \\Formbraid\\Laravel\\Contracts\\OptionSource { public function inputs(): array { return []; } public function resolveInputs(): array { return []; } })];');
+        $this->failWith($request.'.name: unsupported option source');
+        self::assertFileDoesNotExist($this->root.'/resources/js/formbraid/laravel/requests/'.str_replace('\\', '/', $request).'.ts');
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage("source provider's producer");
+        Artisan::call('formbraid:export');
+    }
+
+    public function test_static_options_are_emitted_without_changing_finite_validation_or_component_props(): void
+    {
+        $request = $this->request(['name' => 'string'], 'return ["name" => Field::make()->options([["value" => "a", "label" => "A"]])];');
+        $this->succeed();
+        $module = $this->generated('requests/'.str_replace('\\', '/', $request).'.ts');
+        self::assertStringContainsString('"kind": "static"', $module);
+        self::assertStringContainsString('"label": "A"', $module);
+        self::assertStringContainsString('"name": string;', $module);
+    }
+
+    public function test_provider_producers_can_emit_explicitly_supported_sources_as_portable_metadata(): void
+    {
+        $class = $this->request(fields: 'return ["name" => Field::make()->options(new class implements \\Formbraid\\Laravel\\Contracts\\OptionSource { public function inputs(): array { return [\\Formbraid\\Laravel\\OptionInput::value()]; } public function resolveInputs(): array { return []; } })];');
+        require $this->root.'/app/Http/Requests/ProfileRequest.php';
+        $extracted = (new RequestExtractor(config('formbraid')))->extract(new $class);
+        $emitter = new FormEmitter(ComponentMetadata::read($this->root.'/resources/js/formbraid/_metadata.json'));
+        $module = $emitter->emit($extracted['form'], supportedOptionSources: array_keys($extracted['optionSources']));
+        self::assertStringContainsString('"kind": "source"', $module);
+        self::assertStringContainsString('"kind": "value"', $module);
+        self::assertStringContainsString('"name": string;', $module);
+        // A provider must account for every declaration; recognizing a different ID is not sufficient.
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage($class.'.name: unsupported option source');
+        $emitter->emit($extracted['form'], supportedOptionSources: ['another:field']);
     }
 
     public function test_generates_enum_before_fields_and_namespace_preserving_requests_and_controller_descriptors(): void

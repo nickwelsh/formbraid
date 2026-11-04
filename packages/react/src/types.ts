@@ -12,6 +12,7 @@ import type {
 } from '@formbraid/core';
 import type { ComponentType, FormHTMLAttributes, FunctionComponent, ReactNode } from 'react';
 import type { FormApi } from './form-api.js';
+import type { OptionSourceBinding } from './options.js';
 
 export interface FieldProps<TValue = unknown> {
     readonly label: string;
@@ -70,6 +71,7 @@ export interface FormInstance<
     TSchemaServices = never,
 > {
     readonly definition: FormDefinition<TValues, TFields, TGroups, TOutput, TSchemaServices>;
+    readonly optionSources?: OptionSourceBinding;
     readonly form: FormApi<TValues, TOutput, TSuccess, TError, TServices, TSchemaServices>;
     readonly cancel: () => void;
 }

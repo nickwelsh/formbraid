@@ -13,6 +13,26 @@ export function defineForm<TValues extends object, TOutput = TValues, TServices 
         const claimed = new Set<string>();
         for (const field of Object.values(definition.fields)) {
             pathSegments(field.name.replaceAll('.*', '.0'));
+            if (field.options?.kind === 'source') {
+                const location = `${definition.id}.${field.name}`;
+                if (field.name.includes('*')) {
+                    throw new Error(`${location}: wildcard-relative option sources are not supported.`);
+                }
+                if (field.options.resolveInputs.some((reference) => reference.kind === 'value')) {
+                    throw new Error(`${location}: selected-ID resolution cannot depend on control-local value.`);
+                }
+                const dependencies = [...field.options.inputs, ...field.options.resolveInputs].filter(
+                    (reference) => reference.kind === 'field',
+                );
+                for (const reference of dependencies) {
+                    if (reference.path.includes('*')) {
+                        throw new Error(
+                            `${location}: wildcard-relative dependency ${reference.path} is not supported.`,
+                        );
+                    }
+                    pathSegments(reference.path);
+                }
+            }
         }
         for (const [name, group] of Object.entries(definition.groups)) {
             for (const path of Object.values(group.fields)) {

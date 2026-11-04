@@ -5,6 +5,25 @@ import type { HttpOperation, Extraction, JsonValue } from './contracts.js';
 export const JsonValueSchema = Schema.Json;
 export const JsonObjectSchema = Schema.JsonObject;
 const OptionSchema = Schema.Union([Schema.String, Schema.Finite]);
+export const PresentationOptionSchema = Schema.Struct({
+    value: OptionSchema,
+    label: Schema.String,
+    disabled: Schema.optionalKey(Schema.Boolean),
+});
+export const OptionInputReferenceSchema = Schema.Union([
+    Schema.Struct({ kind: Schema.Literal('value') }),
+    Schema.Struct({ kind: Schema.Literal('field'), path: Schema.String }),
+    Schema.Struct({ kind: Schema.Literal('context'), key: Schema.String }),
+]);
+export const FieldOptionsSchema = Schema.Union([
+    Schema.Struct({ kind: Schema.Literal('static'), items: Schema.Array(PresentationOptionSchema) }),
+    Schema.Struct({
+        kind: Schema.Literal('source'),
+        id: Schema.String,
+        inputs: Schema.Array(OptionInputReferenceSchema),
+        resolveInputs: Schema.Array(OptionInputReferenceSchema),
+    }),
+]);
 export const RequiredConditionSchema = Schema.Struct({
     field: Schema.String,
     values: Schema.Array(JsonValueSchema),
@@ -29,6 +48,7 @@ export const FieldDefinitionSchema = Schema.Struct({
     label: Schema.String,
     helpText: Schema.optionalKey(Schema.String),
     props: JsonObjectSchema,
+    options: Schema.optionalKey(FieldOptionsSchema),
     constraints: ConstraintsSchema,
     nullable: Schema.Boolean,
     serverRules: Schema.Array(Schema.String),
