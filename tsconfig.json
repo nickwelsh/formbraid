@@ -4,6 +4,7 @@
         "types": ["node", "vite-plus/client", "vite-plus/test/globals"],
         "paths": {
             "@formbraid/core": ["./packages/core/src/index.ts"],
+            "@formbraid/core/vite": ["./packages/core/src/vite.ts"],
             "@formbraid/react": ["./packages/react/src/index.ts"],
             "@formbraid/inertia/effect": ["./packages/inertia/src/effect.ts"],
             "@formbraid/inertia": ["./packages/inertia/src/index.ts"],

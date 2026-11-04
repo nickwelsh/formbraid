@@ -9,7 +9,7 @@ import type {
 } from '@formbraid/core';
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { Effect, Schema } from 'effect';
-import { createFormbraid } from './create-formbraid.js';
+import { createFormbraid, defineConfig } from './create-formbraid.js';
 import { useFieldContext } from './hooks.js';
 import type { FieldProps } from './types.js';
 
@@ -56,8 +56,8 @@ function TextField({ label }: FieldProps<string>) {
 function SubmitButton() {
     return <button type="submit">Save</button>;
 }
-const formbraid = createFormbraid({
-    fieldComponents: { TextField },
+const formbraid = defineConfig({
+    components: { TextField },
     formComponents: { SubmitButton },
 });
 function submitForm() {

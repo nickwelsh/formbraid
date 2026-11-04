@@ -1,0 +1,24 @@
+{
+    "version": 1,
+    "inputs": [],
+    "fields": {
+        "input": {
+            "props": {
+                "label": { "required": true, "type": { "kind": "string" } },
+                "tone": {
+                    "required": false,
+                    "type": {
+                        "kind": "union",
+                        "alternatives": [
+                            { "kind": "literal", "value": "quiet" },
+                            { "kind": "literal", "value": "loud" }
+                        ]
+                    }
+                }
+            }
+        },
+        "email": { "props": { "label": { "required": true, "type": { "kind": "string" } } } }
+    },
+    "components": {},
+    "groups": {}
+}

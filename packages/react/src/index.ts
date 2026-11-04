@@ -1,4 +1,4 @@
-export { createFormbraid } from './create-formbraid.js';
+export { createFormbraid, defineConfig } from './create-formbraid.js';
 export type { FormbraidOptions } from './create-formbraid.js';
 export { useFieldContext, useFormContext } from './hooks.js';
 export { withFieldGroup } from './group.js';

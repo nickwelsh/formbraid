@@ -100,6 +100,26 @@ export interface FormbraidOptions<
     readonly submitComponent?: keyof TComponents & string;
 }
 
+/** Application components only; generator integrations belong in Vite. */
+export function defineConfig<
+    const TFields extends ComponentRegistry,
+    const TComponents extends ComponentRegistry = Record<string, never>,
+    const TGroups extends ComponentRegistry = Record<string, never>,
+>(config: {
+    readonly components: TFields;
+    readonly formComponents?: TComponents;
+    readonly groups?: TGroups;
+    readonly submitComponent?: keyof TComponents & string;
+}) {
+    return createFormbraid({
+        fieldComponents: config.components,
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- An omitted registry has no keys; supplied registries retain their inferred component types.
+        formComponents: config.formComponents ?? ({} as TComponents),
+        ...(config.groups === undefined ? {} : { fieldGroups: config.groups }),
+        ...(config.submitComponent === undefined ? {} : { submitComponent: config.submitComponent }),
+    });
+}
+
 export function createFormbraid<
     const TFieldComponents extends ComponentRegistry,
     const TComponents extends ComponentRegistry,

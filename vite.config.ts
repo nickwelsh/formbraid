@@ -40,7 +40,7 @@ export default {
                 rules: { 'import/no-relative-parent-imports': 'off' },
             },
             {
-                files: ['packages/generator/src/inspect.ts'],
+                files: ['packages/core/src/tooling/inspect.ts'],
                 // TypeScript represents compiler flags as bitmasks.
                 rules: { 'eslint/no-bitwise': 'off' },
             },
@@ -56,6 +56,7 @@ export default {
             },
             {
                 files: [
+                    'packages/core/src/tooling/**',
                     'packages/generator/**',
                     'scripts/**',
                     'benchmarks/**',
@@ -331,6 +332,7 @@ export default {
     resolve: {
         alias: {
             '@formbraid/example': fileURLToPath(new URL('examples/react/src', import.meta.url)),
+            '@formbraid/core/vite': fileURLToPath(new URL('packages/core/src/vite.ts', import.meta.url)),
             '@formbraid/laravel/generator': fileURLToPath(new URL('packages/laravel/js/generator.ts', import.meta.url)),
             '@formbraid/react/generator': fileURLToPath(new URL('packages/react/src/generator.ts', import.meta.url)),
             '@formbraid/inertia/generator': fileURLToPath(

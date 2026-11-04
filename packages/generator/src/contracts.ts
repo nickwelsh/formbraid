@@ -1,5 +1,7 @@
 /* oxlint-disable eslint/new-cap -- Effect tagged errors use a class factory. */
 import type { Extraction, JsonValue, Operation } from '@formbraid/core';
+import type { RegistryManifest } from '@formbraid/core/vite';
+export type { ModuleExport, TypeShape, PropShape, ComponentInfo, RegistryManifest } from '@formbraid/core/vite';
 import { Data, Effect } from 'effect';
 
 export class GenerationError extends Data.TaggedError('GenerationError')<{
@@ -17,53 +19,6 @@ export function generationStep<A>(
         catch: (cause) =>
             new GenerationError({ stage, message: cause instanceof Error ? cause.message : String(cause), cause }),
     });
-}
-
-export interface ModuleExport {
-    readonly module: string;
-    readonly export: string;
-}
-
-export interface TypeShape {
-    readonly kind:
-        | 'string'
-        | 'number'
-        | 'boolean'
-        | 'null'
-        | 'undefined'
-        | 'file'
-        | 'object'
-        | 'array'
-        | 'union'
-        | 'literal'
-        | 'unknown'
-        | 'unsupported'
-        | 'function';
-    readonly value?: JsonValue;
-    readonly properties?: Readonly<Record<string, PropShape>>;
-    readonly additionalProperties?: TypeShape;
-    readonly numericProperties?: TypeShape;
-    readonly implicitIndex?: boolean;
-    readonly items?: TypeShape;
-    readonly tuple?: boolean;
-    readonly readonly?: boolean;
-    readonly alternatives?: ReadonlyArray<TypeShape>;
-}
-
-export interface PropShape {
-    readonly required: boolean;
-    readonly type: TypeShape;
-}
-
-export interface ComponentInfo {
-    readonly props: Readonly<Record<string, PropShape>>;
-    readonly slots?: Readonly<Record<string, TypeShape>>;
-}
-
-export interface RegistryManifest {
-    readonly fields: Readonly<Record<string, ComponentInfo>>;
-    readonly components: Readonly<Record<string, ComponentInfo>>;
-    readonly groups: Readonly<Record<string, ComponentInfo>>;
 }
 
 export interface GenerationContext {
