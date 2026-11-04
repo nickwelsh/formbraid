@@ -5,10 +5,11 @@ declare(strict_types=1);
 namespace Formbraid\Laravel;
 
 use BackedEnum;
+use Formbraid\Laravel\Contracts\OptionSource;
 
 final class Field
 {
-    /** @var array{component?: string|int, label?: string, helpText?: string, type?: string, props?: array<string, mixed>} */
+    /** @var array{component?: string|int, label?: string, helpText?: string, type?: string, props?: array<string, mixed>, options?: array<mixed>|OptionSource} */
     private array $metadata = [];
 
     public static function make(BackedEnum|string|null $component = null): self
@@ -50,7 +51,15 @@ final class Field
         return $this;
     }
 
-    /** @return array{component?: string|int, label?: string, helpText?: string, type?: string, props?: array<string, mixed>} */
+    /** @param list<array{value: string|int|float, label: string, disabled?: bool}>|OptionSource $options */
+    public function options(array|OptionSource $options): self
+    {
+        $this->metadata['options'] = $options;
+
+        return $this;
+    }
+
+    /** @return array{component?: string|int, label?: string, helpText?: string, type?: string, props?: array<string, mixed>, options?: array<mixed>|OptionSource} */
     public function toArray(): array
     {
         return $this->metadata;

@@ -65,6 +65,31 @@ function issues(
 }
 
 describe('portable contracts', () => {
+    it('accepts concrete option dependencies and rejects wildcard-relative or local resolution inputs', () => {
+        expect.hasAssertions();
+        const source = { kind: 'source', id: 'Party:party', inputs: [], resolveInputs: [] } as const;
+        const make = (name: string, options: NonNullable<FieldDefinition['options']>) =>
+            defineForm<{ party: number }>()({
+                id: 'Party',
+                defaultValues: { party: 99 },
+                fields: { party: field(name, { type: 'integer', options }) },
+                groups: {},
+            });
+        expect(
+            make('party', { ...source, inputs: [{ kind: 'field', path: 'rows.0.id' }] }).fields.party.options,
+        ).toStrictEqual({ ...source, inputs: [{ kind: 'field', path: 'rows.0.id' }] });
+        expect(() => make('rows.*.party', source)).toThrow('Party.rows.*.party: wildcard-relative option sources');
+        expect(() => make('party', { ...source, inputs: [{ kind: 'field', path: 'rows.*.id' }] })).toThrow(
+            'Party.party: wildcard-relative dependency',
+        );
+        expect(() => make('party', { ...source, resolveInputs: [{ kind: 'value' }] })).toThrow(
+            'selected-ID resolution cannot depend',
+        );
+        expect(() => make('party', { ...source, inputs: [{ kind: 'field', path: '__proto__.id' }] })).toThrow(
+            'Invalid field path',
+        );
+    });
+
     it('uses named leaf segments for default labels and translates concrete Laravel array paths', () => {
         expect.hasAssertions();
         expect(titleCase('billing.address_line_1')).toBe('Address Line 1');

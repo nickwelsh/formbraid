@@ -13,6 +13,8 @@ import { createBindings, eraseInstance, typedBindings, InstanceContext } from '.
 import type { BindingIdentityCache, RuntimeBindings } from './render.js';
 import { createFormApi } from './form-api.js';
 import { FormContext } from './hooks.js';
+import { OptionSourcesProvider } from './options.js';
+import type { OptionSourceBinding } from './options.js';
 import type { ComponentRegistry, FormInstance, FormOptions, FormProps, UseForm } from './types.js';
 
 function notify<T>(callback: (value: T) => void, value: T): void {
@@ -126,6 +128,9 @@ export function createFormbraid<
     ): FormInstance<TValues, TFields, TGroups, TOutput, TSuccess, TError, TServices, TSchemaServices> {
         const sessionOptions = resolveForm(input, options);
         const { definition } = sessionOptions;
+        // Executable React bindings stay on the descriptor/instance, never the core definition.
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- React-only descriptor extensions are erased by the core descriptor contract.
+        const optionSources = 'optionSources' in input ? (input.optionSources as OptionSourceBinding) : undefined;
         // oxlint-disable-next-line react/hook-use-state -- Sessions are constructed once; their own subscriptions publish state.
         const [session] = useState(() => createFormSession(sessionOptions));
         const lifetime = useRef({ mounted: false, options });
@@ -201,7 +206,15 @@ export function createFormbraid<
                 session.cancel();
             };
         }, [session, lifetime]);
-        return useMemo(() => ({ definition, form, cancel: session.cancel }), [definition, form, session]);
+        return useMemo(
+            () => ({
+                definition,
+                form,
+                cancel: session.cancel,
+                ...(optionSources === undefined ? {} : { optionSources }),
+            }),
+            [definition, form, session, optionSources],
+        );
     }
 
     // The public overloads restrict omitted options to service-free definitions.
@@ -274,17 +287,19 @@ export function createFormbraid<
         return (
             <InstanceContext value={runtime}>
                 <FormContext value={runtime.form}>
-                    <form
-                        {...html}
-                        noValidate
-                        onSubmit={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            void instance.form.handleSubmit();
-                        }}
-                    >
-                        {content}
-                    </form>
+                    <OptionSourcesProvider definition={instance.definition} sources={instance.optionSources}>
+                        <form
+                            {...html}
+                            noValidate
+                            onSubmit={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                void instance.form.handleSubmit();
+                            }}
+                        >
+                            {content}
+                        </form>
+                    </OptionSourcesProvider>
                 </FormContext>
             </InstanceContext>
         );

@@ -71,4 +71,25 @@ Controller functions return `{ version: 1, definition, submission: { submit } }`
 
 Callbacks receive validated values and `{ signal, onProgress }`, and return explicit submission results. Local callback overrides and scoped Effect operations remain available. The backend remains authoritative for validation and authorization. `formbraid:export` and `formbraid:http` remain lower-level schema and HTTP inspection commands, not a Node installation workflow.
 
+## Presentation options and provider producers
+
+Declare explicit static value/label pairs independently of finite `in:` validation:
+
+```php
+'status' => Field::make('SelectField')->options([
+    ['value' => 'open', 'label' => 'Open'],
+    ['value' => 'closed', 'label' => 'Closed', 'disabled' => true],
+]),
+```
+
+Dynamic providers implement `Formbraid\Laravel\Contracts\OptionSource` with `inputs(): array` and `resolveInputs(): array`, each returning discovered `list<OptionInput>` dependencies for its operation. Application authors embed references in the provider's declaration; they do not maintain a second input mapping. `Field::options(array|OptionSource $options): self` accepts either declaration. Formbraid does not know or depend on a provider query builder, AST, network protocol, or authorization strategy.
+
+`Formbraid\Laravel\OptionInput` is final/readonly and provides symbolic `value()`, `field(string $path)`, and `context(string $key)` constructors. Inspect `kind`, `path`, `key`, or `toArray()`; there is no string coercion. `value()` is control-local input, **not** the selected draft ID. Selected-ID queries should explicitly declare their own field/context dependencies, never depend on local input or derive eligibility by removing search predicates.
+
+`RequestExtractor::extract(object $request): array` preserves `form` and `diagnostics` and, for source-backed forms, adds `optionSources: array<string, OptionSource>`. The latter retains each original build-time declaration. The portable `form` contains only JSON; input references are deduplicated per operation. IDs are deterministic `RequestClass:field.path` wiring identifiers, not credentials or query fingerprints. Providers own query fingerprinting. Known concrete field paths are checked against validation-rule paths (including concrete numeric paths through wildcard rules); wildcard-relative/repeater sources are explicitly rejected. Context references remain available to a producer for validation against the specific action's bound context.
+
+`FormEmitter::emit(array $form, array $supportedOptionSources = []): string` emits portable definitions. A specialized producer first recognizes and compiles each source declaration, then passes the list of source IDs it handled. Any unhandled ID fails with a request/field diagnostic. The ordinary Laravel `formbraid:generate`/`formbraid:export` commands cannot compile external providers and fail helpfully rather than drop their sources. A provider producer can reuse extraction/emission and generate React's `withOptionSources(descriptor, bindings, context)` attachment alongside its ordinary submission descriptor. Never serialize query objects, closures, bindings, or context-dependent executable code into field props.
+
+Static/dynamic presentation options never change inferred value types, `constraints.options`, submission payloads, or authoritative validation. Component prop inspection stays strict; controls consume source state through React's `useFieldOptions`, not a required executable prop. Provider-specific input contracts, selected-ID resolution, registered reads, authorization, caching, pagination, and retries belong in the integration. No Zero/HTTP adapter ships with Formbraid.
+
 See the [documentation](https://docs.nickwelsh.me/formbraid/) and [source repository](https://github.com/nickwelsh/formbraid). The [Composer mirror](https://github.com/formbraid/laravel) is maintained automatically; submit changes and issues to the source repository.

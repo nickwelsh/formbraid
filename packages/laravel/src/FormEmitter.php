@@ -10,7 +10,7 @@ use stdClass;
 /**
  * @phpstan-import-type ComponentInfo from ComponentMetadata
  *
- * @phpstan-type FieldData array{name: string, type: string, component: string, label: string, props: stdClass, constraints: stdClass&object{options?: list<string|int|float>}, nullable: bool, helpText?: string}
+ * @phpstan-type FieldData array{name: string, type: string, component: string, label: string, props: stdClass, constraints: stdClass&object{options?: list<string|int|float>}, nullable: bool, helpText?: string, options?: array{kind: 'static', items: list<array{value: string|int|float, label: string, disabled?: bool}>}|array{kind: 'source', id: string, inputs: list<array{kind: string, path?: string, key?: string}>, resolveInputs: list<array{kind: string, path?: string, key?: string}>}}
  * @phpstan-type GroupData array{component: string, props: stdClass, fields: stdClass, label?: string, helpText?: string}
  * @phpstan-type FormData array{id: class-string, defaultValues: stdClass, fields: stdClass, groups: stdClass}
  */
@@ -18,8 +18,11 @@ final readonly class FormEmitter
 {
     public function __construct(private ComponentMetadata $metadata) {}
 
-    /** @param FormData $form */
-    public function emit(array $form): string
+    /**
+     * @param  FormData  $form
+     * @param  list<string>  $supportedOptionSources  IDs whose declarations the calling producer has compiled into runtime bindings.
+     */
+    public function emit(array $form, array $supportedOptionSources = []): string
     {
         // RequestExtractor owns these internal JSON representations.
         /** @var array<string, FieldData> $fields */
@@ -36,6 +39,9 @@ final readonly class FormEmitter
         $values->resolve([json_decode(TypeShape::literal($form['defaultValues']), flags: JSON_THROW_ON_ERROR)]);
         foreach ($fields as $field) {
             $name = $form['id'].'.'.$field['name'];
+            if (($field['options']['kind'] ?? null) === 'source' && ! in_array($field['options']['id'], $supportedOptionSources, true)) {
+                throw new RuntimeException("{$name}: unsupported option source {$field['options']['id']}; use the source provider's producer to generate executable bindings.");
+            }
             $component = $this->metadata->fields[$field['component']] ?? throw new RuntimeException("{$name}: unregistered field component {$field['component']}.");
             $props = array_replace((array) $field['props'], ['label' => $field['label'], 'constraints' => $field['constraints']]);
             if (isset($field['helpText'])) {

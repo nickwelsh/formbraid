@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Formbraid\Laravel\Tests;
 
+use Formbraid\Laravel\Contracts\OptionSource;
 use Formbraid\Laravel\Field;
 use Formbraid\Laravel\FieldGroup;
+use Formbraid\Laravel\OptionInput;
 use Formbraid\Laravel\RequestExtractor;
 use Illuminate\Translation\ArrayLoader;
 use Illuminate\Translation\Translator;
@@ -287,5 +289,135 @@ final class RequestExtractorTest extends TestCase
         self::assertArrayNotHasKey('max', $form['fields']['photo']['constraints']);
         self::assertNull($form['defaultValues']['photo']);
         self::assertSame(['date', 'before'], $form['fields']['birthday']['serverRules']);
+    }
+
+    public function test_option_references_are_symbolic_inspectable_and_not_stringable(): void
+    {
+        $references = [OptionInput::value(), OptionInput::field('organization.id'), OptionInput::context('party')];
+        self::assertSame([
+            ['kind' => 'value'], ['kind' => 'field', 'path' => 'organization.id'], ['kind' => 'context', 'key' => 'party'],
+        ], array_map(static fn (OptionInput $input): array => $input->toArray(), $references));
+        self::assertSame('organization.id', $references[1]->path);
+        $this->expectException(\Error::class);
+        (string) $references[0];
+    }
+
+    public function test_extracts_portable_options_and_separate_original_build_time_sources(): void
+    {
+        $source = new class implements OptionSource
+        {
+            public function inputs(): array
+            {
+                return [OptionInput::value(), OptionInput::field('organization.id'), OptionInput::field('organization.id'), OptionInput::field('rows.0.id'), OptionInput::context('party')];
+            }
+
+            public function resolveInputs(): array
+            {
+                return [OptionInput::field('party_id'), OptionInput::context('party')];
+            }
+        };
+        $request = new class($source)
+        {
+            public function __construct(private OptionSource $source) {}
+
+            public function rules(): array
+            {
+                return ['party_id' => 'nullable|integer', 'organization.id' => 'integer', 'rows.*.id' => 'integer', 'status' => 'string|in:open,closed'];
+            }
+
+            public function fields(): array
+            {
+                return [
+                    'party_id' => Field::make()->options($this->source),
+                    'status' => Field::make()->options([['value' => 'open', 'label' => 'Open'], ['value' => 'closed', 'label' => 'Closed', 'disabled' => true]]),
+                ];
+            }
+        };
+        $extracted = $this->extractor()->extract($request);
+        $form = json_decode(json_encode($extracted['form'], JSON_THROW_ON_ERROR), true, flags: JSON_THROW_ON_ERROR);
+        $options = $form['fields']['party_id']['options'];
+        self::assertSame('source', $options['kind']);
+        self::assertSame($request::class.':party_id', $options['id']);
+        self::assertSame($source, $extracted['optionSources'][$options['id']]);
+        self::assertSame($options, ((array) $this->extractor()->extract($request)['form']['fields'])['party_id']['options']);
+        self::assertCount(4, $options['inputs']);
+        self::assertSame([['kind' => 'field', 'path' => 'party_id'], ['kind' => 'context', 'key' => 'party']], $options['resolveInputs']);
+        self::assertArrayNotHasKey('options', $form['fields']['party_id']['constraints']);
+        self::assertSame(['open', 'closed'], $form['fields']['status']['constraints']['options']);
+        self::assertSame('static', $form['fields']['status']['options']['kind']);
+        self::assertTrue($form['fields']['status']['options']['items'][1]['disabled']);
+    }
+
+    public function test_unknown_wildcard_and_control_local_resolution_dependencies_fail_with_field_diagnostics(): void
+    {
+        foreach ([
+            ['party_id', OptionInput::field('missing'), false, 'unknown option dependency missing'],
+            ['party_id', OptionInput::field('rows.*.id'), false, 'wildcard-relative dependency'],
+            ['rows.*.id', OptionInput::field('party_id'), false, 'wildcard-relative option sources'],
+            ['party_id', OptionInput::value(), true, 'resolution cannot depend'],
+        ] as [$field, $input, $resolving, $message]) {
+            $source = new class($input, $resolving) implements OptionSource
+            {
+                public function __construct(private OptionInput $input, private bool $resolving) {}
+
+                public function inputs(): array
+                {
+                    return $this->resolving ? [] : [$this->input];
+                }
+
+                public function resolveInputs(): array
+                {
+                    return $this->resolving ? [$this->input] : [];
+                }
+            };
+            $request = new class($source, $field)
+            {
+                public function __construct(private OptionSource $source, private string $field) {}
+
+                public function rules(): array
+                {
+                    return ['party_id' => 'integer', 'rows.*.id' => 'integer'];
+                }
+
+                public function fields(): array
+                {
+                    return [$this->field => Field::make()->options($this->source)];
+                }
+            };
+            try {
+                $this->extractor()->extract($request);
+                self::fail('Expected invalid dependency diagnostic.');
+            } catch (InvalidArgumentException $error) {
+                self::assertStringContainsString($request::class.'.'.$field, $error->getMessage());
+                self::assertStringContainsString($message, $error->getMessage());
+            }
+        }
+    }
+
+    public function test_static_options_require_explicit_finite_value_label_pairs(): void
+    {
+        foreach ([['a' => 'A'], [['value' => true, 'label' => 'A']], [['value' => INF, 'label' => 'A']], [['value' => 1, 'label' => 'A', 'disabled' => null]], [['value' => 1, 'label' => 'A', 'extra' => 1]]] as $options) {
+            $request = new class($options)
+            {
+                public function __construct(private array $options) {}
+
+                public function rules(): array
+                {
+                    return ['party_id' => 'integer'];
+                }
+
+                public function fields(): array
+                {
+                    return ['party_id' => Field::make()->options($this->options)];
+                }
+            };
+            try {
+                $this->extractor()->extract($request);
+                self::fail('Expected invalid static options diagnostic.');
+            } catch (InvalidArgumentException $error) {
+                self::assertStringContainsString($request::class.'.party_id', $error->getMessage());
+                self::assertStringContainsString('static options', $error->getMessage());
+            }
+        }
     }
 }

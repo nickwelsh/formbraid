@@ -2,6 +2,7 @@
 import type { FormDefinition, FormDescriptor, SubmissionCallback, SubmissionResult } from '@formbraid/core';
 import { Context, Effect, Schema, SchemaGetter } from 'effect';
 import { createFormbraid } from './create-formbraid.js';
+import { withOptionSources } from './options.js';
 import type { FieldProps } from './types.js';
 
 interface Values {
@@ -41,7 +42,8 @@ const descriptor = {
 } satisfies FormDescriptor<Values, typeof definition.fields, typeof definition.groups, Values, number, 'offline'>;
 
 export function DescriptorTypeProof() {
-    const instance = runtime.useForm(descriptor);
+    const attached = withOptionSources(descriptor, {}, { parent: 0 });
+    const instance = runtime.useForm(attached);
     const result: Promise<SubmissionResult<number, 'offline'>> = instance.form.handleSubmit();
     // @ts-expect-error Producer success payloads must survive React inference.
     const lostSuccess: Promise<SubmissionResult<string, 'offline'>> = instance.form.handleSubmit();
@@ -49,7 +51,7 @@ export function DescriptorTypeProof() {
     instance.form.setFieldValue('title', 42);
     const rendered = (
         <runtime.Form
-            form={descriptor}
+            form={attached}
             onResult={(outcome) => {
                 if (outcome.status === 'success') {
                     const saved: number = outcome.value;
@@ -150,11 +152,12 @@ const serviceDefinition = { ...definition, schema: Schema.Struct({ title: titleS
 
 const serviceDescriptor = { version: 1 as const, definition: serviceDefinition, submission: { submit: callback } };
 export function DescriptorServicesTypeProof() {
+    const attached = withOptionSources(serviceDescriptor, {});
     // @ts-expect-error Descriptors retain decoder service requirements.
-    runtime.useForm(serviceDescriptor);
+    runtime.useForm(attached);
     // @ts-expect-error Form rendering cannot omit a required decoder runner.
     const invalid = <runtime.Form form={serviceDescriptor} />;
-    const instance = runtime.useForm(serviceDescriptor, {
+    const instance = runtime.useForm(attached, {
         run: Effect.runPromiseWith(Context.make(Decode, { prefix: 'decoded:' })),
     });
     void invalid;
