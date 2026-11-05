@@ -1,8 +1,9 @@
-import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { NodeChildProcessSpawner, NodeFileSystem, NodePath } from '@effect/platform-node-shared';
+import { Cause, Effect, FileSystem, Layer, ManagedRuntime, Semaphore, Stream } from 'effect';
+import type { Fiber } from 'effect';
+import { ChildProcess, ChildProcessSpawner } from 'effect/process';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import type { Integration } from './contracts.js';
 import { inspectComponents } from './inspect.js';
@@ -12,96 +13,114 @@ export function vitePlugin({ integrations }: { readonly integrations: ReadonlyAr
     // oxlint-disable-next-line eslint/init-declarations -- Vite provides configuration before any generation hooks run.
     let config: ResolvedConfig;
     let server: ViteDevServer | undefined = undefined;
-    let running: Promise<void> | undefined = undefined;
-    let timer: ReturnType<typeof setTimeout> | undefined = undefined;
+    let debounce: Fiber.Fiber<void> | undefined = undefined;
     let initialized = false;
     let closed = false;
     const pending = new Set<Integration>();
     const inputs = new Map<Integration, Set<string>>();
-    const children = new Set<ReturnType<typeof spawn>>();
+    const serial = Semaphore.makeUnsafe(1);
+    const runtime = ManagedRuntime.make(
+        Layer.provideMerge(NodeChildProcessSpawner.layer, Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)),
+    );
 
     function matches(file: string, patterns: ReadonlyArray<string>): boolean {
         return patterns.some((pattern) => path.matchesGlob(file, path.resolve(config.root, pattern)));
     }
 
-    async function run(integration: Integration): Promise<void> {
+    const run = Effect.fnUntraced(function* run(integration: Integration) {
+        const fs = yield* FileSystem.FileSystem;
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
         const registry = fileURLToPath(integration.registry);
         const destination = fileURLToPath(integration.metadata);
         const metadata = inspectComponents(registry, config.root);
         const source = `${JSON.stringify(metadata, null, 2)}\n`;
-        await mkdir(path.dirname(destination), { recursive: true });
-        let previous: string | undefined = undefined;
-        try {
-            previous = await readFile(destination, 'utf8');
-        } catch (error) {
-            if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
-                throw error;
-            }
-        }
+        yield* fs.makeDirectory(path.dirname(destination), { recursive: true });
+        const previous = yield* fs
+            .readFileString(destination)
+            .pipe(Effect.catchReason('PlatformError', 'NotFound', () => Effect.void));
         if (previous !== source) {
-            const temporary = `${destination}.${randomUUID()}.tmp`;
-            try {
-                await writeFile(temporary, source);
-                await rename(temporary, destination);
-            } finally {
-                await rm(temporary, { force: true });
-            }
+            yield* Effect.scoped(
+                Effect.gen(function* writeMetadata() {
+                    const temporary = yield* fs.makeTempFileScoped({
+                        directory: path.dirname(destination),
+                        prefix: `${path.basename(destination)}.`,
+                    });
+                    yield* fs.writeFileString(temporary, source);
+                    yield* fs.rename(temporary, destination);
+                }),
+            );
         }
         inputs.set(integration, new Set(metadata.inputs.map((file) => path.resolve(file))));
         server?.watcher.add(metadata.inputs);
+        const { command } = integration;
+        const executable = typeof command === 'string' ? command : command[0];
+        const args = typeof command === 'string' ? [] : command.slice(1);
+        const child = yield* spawner.spawn(
+            ChildProcess.make(executable, args, {
+                cwd: config.root,
+                shell: typeof command === 'string',
+                stdin: 'ignore',
+                forceKillAfter: '2 seconds',
+            }),
+        );
+        const [, stderr, code] = yield* Effect.all(
+            [
+                child.stdout.pipe(
+                    Stream.decodeText(),
+                    Stream.runForEach((chunk) => Effect.sync(() => config.logger.info(chunk.trimEnd()))),
+                ),
+                child.stderr.pipe(
+                    Stream.decodeText(),
+                    Stream.runFold(
+                        () => '',
+                        (tail, chunk) => `${tail}${chunk}`.slice(-16_384),
+                    ),
+                ),
+                child.exitCode,
+            ],
+            { concurrency: 'unbounded' },
+        );
+        if (code !== 0) {
+            return yield* Effect.fail(new Error(`${integration.name}: generation failed (${code}).\n${stderr}`));
+        }
+        return yield* Effect.void;
+    }, Effect.scoped);
+
+    const drain = Effect.gen(function* drain() {
+        while (pending.size > 0) {
+            const jobs = [...pending];
+            pending.clear();
+            for (const integration of jobs) {
+                if (closed) {
+                    return;
+                }
+                yield* run(integration);
+            }
+        }
+    }).pipe(serial.withPermits(1));
+
+    const regenerate = drain.pipe(
+        Effect.tap(() => Effect.sync(() => server?.ws.send({ type: 'full-reload' }))),
+        Effect.catchCause((cause) =>
+            Effect.sync(() => {
+                if (closed) {
+                    return;
+                }
+                const error = Cause.squash(cause);
+                const failure = error instanceof Error ? error : new Error(String(error));
+                config.logger.error(failure.message);
+                server?.ws.send({
+                    type: 'error',
+                    err: { message: failure.message, stack: failure.stack ?? '', plugin: 'formbraid' },
+                });
+            }),
+        ),
+    );
+
+    function changed(_event: string, filename: string): void {
         if (closed) {
             return;
         }
-        // oxlint-disable-next-line promise/avoid-new -- Child process events must be adapted to the awaited Vite build lifecycle.
-        await new Promise<void>((resolve, reject) => {
-            const { command } = integration;
-            const executable = typeof command === 'string' ? command : command[0];
-            const args = typeof command === 'string' ? [] : command.slice(1);
-            const child = spawn(executable, args, {
-                cwd: config.root,
-                shell: typeof command === 'string',
-                stdio: ['ignore', 'pipe', 'pipe'],
-            });
-            children.add(child);
-            let stderr = '';
-            child.stdout.on('data', (data: Buffer) => config.logger.info(data.toString().trimEnd()));
-            child.stderr.on('data', (data: Buffer) => {
-                stderr = `${stderr}${data.toString()}`.slice(-16_384);
-            });
-            child.once('error', reject);
-            child.once('close', (code, signal) => {
-                children.delete(child);
-                if (code === 0 || closed) {
-                    resolve();
-                } else {
-                    reject(new Error(`${integration.name}: generation failed (${code ?? signal}).\n${stderr}`));
-                }
-            });
-        });
-    }
-
-    async function drain(): Promise<void> {
-        running ??= (async () => {
-            try {
-                while (pending.size > 0) {
-                    if (closed) {
-                        return;
-                    }
-                    const jobs = [...pending];
-                    pending.clear();
-                    for (const integration of jobs) {
-                        // oxlint-disable-next-line eslint/no-await-in-loop -- Integrations may share metadata and output directories; commands must be serialized.
-                        await run(integration);
-                    }
-                }
-            } finally {
-                running = undefined;
-            }
-        })();
-        await running;
-    }
-
-    function changed(_event: string, filename: string): void {
         const file = path.resolve(filename);
         if (
             integrations.some(
@@ -125,24 +144,16 @@ export function vitePlugin({ integrations }: { readonly integrations: ReadonlyAr
         if (pending.size === 0) {
             return;
         }
-        clearTimeout(timer);
-        timer = setTimeout(() => {
-            void regenerate();
-        }, 60);
-    }
-
-    async function regenerate(): Promise<void> {
-        try {
-            await drain();
-            server?.ws.send({ type: 'full-reload' });
-        } catch (error) {
-            const failure = error instanceof Error ? error : new Error(String(error));
-            config.logger.error(failure.message);
-            server?.ws.send({
-                type: 'error',
-                err: { message: failure.message, stack: failure.stack ?? '', plugin: 'formbraid' },
-            });
-        }
+        debounce?.interruptUnsafe();
+        debounce = runtime.runFork(
+            Effect.sleep(60).pipe(
+                Effect.tap(() =>
+                    Effect.sync(() => {
+                        runtime.runFork(regenerate);
+                    }),
+                ),
+            ),
+        );
     }
 
     function watchRoot(pattern: string): string {
@@ -152,12 +163,9 @@ export function vitePlugin({ integrations }: { readonly integrations: ReadonlyAr
 
     async function close(): Promise<void> {
         closed = true;
-        clearTimeout(timer);
         server?.watcher.off('all', changed);
-        for (const child of children) {
-            child.kill('SIGTERM');
-        }
-        await running;
+        pending.clear();
+        await runtime.dispose();
     }
 
     return {
@@ -196,7 +204,7 @@ export function vitePlugin({ integrations }: { readonly integrations: ReadonlyAr
             for (const integration of integrations) {
                 pending.add(integration);
             }
-            await drain();
+            await runtime.runPromise(drain);
         },
         closeBundle: close,
     };

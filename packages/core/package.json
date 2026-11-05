@@ -33,6 +33,7 @@
         "build": "vp pack"
     },
     "dependencies": {
+        "@effect/platform-node-shared": "4.0.2",
         "effect": "4.0.2",
         "typescript-api": "npm:typescript@^5.9.3"
     },

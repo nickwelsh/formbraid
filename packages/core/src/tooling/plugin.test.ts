@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -142,12 +142,15 @@ describe('vite-owned component metadata', () => {
             return lines.length > 0;
         });
         await delay(150);
+        const metadataBefore = await stat(path.join(root, 'metadata.json'));
         await mkdir(path.join(root, 'app/Modules/Todos/Requests'), { recursive: true });
         await writeFile(path.join(root, 'app/Modules/Todos/Requests/Store.php'), '<?php // input');
         await until(async () => {
             const lines = await receipts(root);
             return lines.length >= 2;
         });
+        const metadataAfter = await stat(path.join(root, 'metadata.json'));
+        expect(metadataAfter.mtimeMs).toBe(metadataBefore.mtimeMs);
         await writeFile(path.join(root, 'types.ts'), "export type Tone = 'quiet' | 'loud' | 'urgent';");
         await until(async () => {
             const lines = await receipts(root);
@@ -156,9 +159,11 @@ describe('vite-owned component metadata', () => {
         const lines = await receipts(root);
         await delay(400);
         await expect(receipts(root)).resolves.toHaveLength(lines.length);
+        const files = await readdir(root);
+        expect(files.filter((file) => file.startsWith('metadata.json.'))).toStrictEqual([]);
     }, 30_000);
 
-    it('fails the build when an integration command fails', async () => {
+    it('fails the build with stderr after draining both output streams', async () => {
         expect.hasAssertions();
         const { root, integration } = await fixture();
         await expect(
@@ -168,10 +173,149 @@ describe('vite-owned component metadata', () => {
                 logLevel: 'silent',
                 plugins: [
                     vitePlugin({
-                        integrations: [{ ...integration, command: [process.execPath, '-e', 'process.exit(7)'] }],
+                        integrations: [
+                            {
+                                ...integration,
+                                command: [
+                                    process.execPath,
+                                    '-e',
+                                    "process.stdout.write('x'.repeat(131072)); process.stderr.write('y'.repeat(20000) + 'failure detail'); process.exitCode = 7;",
+                                ],
+                            },
+                        ],
                     }),
                 ],
             }),
-        ).rejects.toThrow('generation failed (7)');
+        ).rejects.toThrow(/generation failed \(7\)\.\ny+failure detail/u);
+    }, 30_000);
+
+    it('serializes integrations sharing metadata and preserves shell command support', async () => {
+        expect.hasAssertions();
+        const { root, integration } = await fixture();
+        await writeFile(
+            path.join(root, 'serial.mjs'),
+            `
+            import { appendFileSync, openSync, closeSync, unlinkSync } from 'node:fs';
+            import { setTimeout } from 'node:timers/promises';
+            const lock = openSync('generation.lock', 'wx');
+            const name = process.argv[2];
+            appendFileSync('order.txt', name + ':start\\n');
+            await setTimeout(40);
+            await import('./generate.mjs');
+            appendFileSync('order.txt', name + ':end\\n');
+            closeSync(lock);
+            unlinkSync('generation.lock');
+        `,
+        );
+        await build({
+            root,
+            configFile: false,
+            logLevel: 'silent',
+            plugins: [
+                vitePlugin({
+                    integrations: [
+                        { ...integration, name: 'first', command: [process.execPath, 'serial.mjs', 'first'] },
+                        { ...integration, name: 'second', command: `"${process.execPath}" serial.mjs second` },
+                    ],
+                }),
+            ],
+        });
+        await expect(readFile(path.join(root, 'order.txt'), 'utf8')).resolves.toBe(
+            'first:start\nfirst:end\nsecond:start\nsecond:end\n',
+        );
+    }, 30_000);
+
+    it('queues changes during generation without interrupting the active command', async () => {
+        expect.hasAssertions();
+        const { root, integration } = await fixture();
+        const server = await createServer({
+            root,
+            configFile: false,
+            logLevel: 'silent',
+            plugins: [vitePlugin({ integrations: [integration] })],
+            server: { host: '127.0.0.1', port: 0 },
+        });
+        servers.push(server);
+        await server.listen();
+        await until(async () => {
+            const lines = await receipts(root);
+            return lines.length === 1;
+        });
+        const generator = await readFile(path.join(root, 'generate.mjs'), 'utf8');
+        await writeFile(path.join(root, 'original.mjs'), generator);
+        await writeFile(
+            path.join(root, 'generate.mjs'),
+            `
+            import { appendFileSync, existsSync, writeFileSync, openSync, closeSync, unlinkSync } from 'node:fs';
+            import { setTimeout } from 'node:timers/promises';
+            const lock = openSync('generation.lock', 'wx');
+            appendFileSync('order.txt', 'start\\n');
+            writeFileSync('ready', '');
+            while (!existsSync('released')) await setTimeout(10);
+            await import('./original.mjs');
+            appendFileSync('order.txt', 'end\\n');
+            closeSync(lock);
+            unlinkSync('generation.lock');
+        `,
+        );
+        await writeFile(path.join(root, 'app/Trigger.php'), '<?php // regenerate');
+        await until(async () => {
+            const files = await readdir(root);
+            return files.includes('ready');
+        });
+        await writeFile(path.join(root, 'types.ts'), "export type Tone = 'quiet' | 'loud' | 'urgent';");
+        await delay(200);
+        await writeFile(path.join(root, 'released'), '');
+        await until(async () => {
+            const lines = await receipts(root);
+            return lines.length >= 3;
+        });
+        await until(async () => {
+            const order = await readFile(path.join(root, 'order.txt'), 'utf8');
+            return order === 'start\nend\nstart\nend\n';
+        });
+        const lines = await receipts(root);
+        expect(JSON.stringify(lines.at(-1))).toContain('urgent');
+    }, 30_000);
+
+    it('closes active generation even when the command ignores SIGTERM', async () => {
+        expect.hasAssertions();
+        const { root, integration } = await fixture();
+        const server = await createServer({
+            root,
+            configFile: false,
+            logLevel: 'silent',
+            plugins: [vitePlugin({ integrations: [integration] })],
+            server: { host: '127.0.0.1', port: 0 },
+        });
+        servers.push(server);
+        await server.listen();
+        await until(async () => {
+            const lines = await receipts(root);
+            return lines.length > 0;
+        });
+        await writeFile(
+            path.join(root, 'generate.mjs'),
+            `
+            import { writeFileSync } from 'node:fs';
+            process.on('SIGTERM', () => {});
+            writeFileSync('active.pid', String(process.pid));
+            setInterval(() => {}, 1000);
+        `,
+        );
+        await writeFile(path.join(root, 'app/Trigger.php'), '<?php // regenerate');
+        await until(async () => {
+            try {
+                return Number(await readFile(path.join(root, 'active.pid'), 'utf8')) > 0;
+            } catch {
+                return false;
+            }
+        });
+        const pid = Number(await readFile(path.join(root, 'active.pid'), 'utf8'));
+        await server.close();
+        expect(() => process.kill(pid, 0)).toThrow('ESRCH');
+        await expect(receipts(root)).resolves.toHaveLength(1);
+        const files = await readdir(root);
+        expect(files.filter((file) => file.startsWith('metadata.json.'))).toStrictEqual([]);
     }, 30_000);
 });
