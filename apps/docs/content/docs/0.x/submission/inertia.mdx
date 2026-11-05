@@ -15,9 +15,11 @@ Regenerate through Vite after changing this config. The PHP `SubmissionDriver` i
 
 ## Fetch
 
-The default Fetch generator emits self-contained browser code. It uses same-origin credentials and reads the live `XSRF-TOKEN` cookie on every request, URL-decoding its value into `X-XSRF-TOKEN`. Keep the application's normal Laravel session and CSRF middleware; no manual token plumbing is needed.
+The default Fetch generator emits a standalone callback backed by Effect's `HttpClient` and `FetchHttpClient` from `effect/http`. The transport still uses browser fetch. It uses same-origin credentials and reads the live `XSRF-TOKEN` cookie on every request, URL-decoding its value into `X-XSRF-TOKEN`. Keep the application's normal Laravel session and CSRF middleware; no manual token plumbing is needed.
 
 Generated code serializes supported values, handles multipart uploads and Laravel method spoofing, maps validation errors to `invalid`, maps expected HTTP/network failures to `failure`, and honors the abort signal. Fetch does not provide upload progress events; use Inertia when your application needs its upload lifecycle.
+
+HTTP and network failures retain Effect's structured `HttpClientError`; malformed validation responses retain decoding errors. Requests are scoped, so cancellation also aborts response-body reads. Mutations are not automatically retried. Both generators decode server field-error bags with the same Effect Schema, rejecting empty bags, field names, or messages. Extra Laravel response metadata, such as `message`, is allowed.
 
 ## Inertia
 

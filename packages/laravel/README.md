@@ -66,7 +66,7 @@ Controller functions return `{ version: 1, definition, submission: { submit } }`
 
 `Formbraid\Laravel\Contracts\SubmissionDriver::generate(string $endpoint, string $method): string` receives a safe TypeScript endpoint expression and returns a callback expression. This is a PHP generation contract, not a JavaScript runtime registry.
 
-- `Formbraid\Laravel\Drivers\Fetch` emits self-contained Fetch code with same-origin credentials, the live URL-decoded `XSRF-TOKEN` cookie forwarded as `X-XSRF-TOKEN`, multipart/method spoofing, validation error mapping, and abort support.
+- `Formbraid\Laravel\Drivers\Fetch` emits a standalone callback using Effect's `HttpClient` and browser-backed `FetchHttpClient`, with same-origin credentials, the live URL-decoded `XSRF-TOKEN` cookie forwarded as `X-XSRF-TOKEN`, multipart/method spoofing, schema-decoded validation errors, and scoped cancellation. HTTP/network failures retain structured Effect errors; mutations are not automatically retried.
 - `Formbraid\Laravel\Drivers\Inertia` dynamically imports the existing application's `@inertiajs/react` router. No Formbraid Inertia package or manual CSRF token plumbing is needed.
 
 Callbacks receive validated values and `{ signal, onProgress }`, and return explicit submission results. Local callback overrides and scoped Effect operations remain available. The backend remains authoritative for validation and authorization. `formbraid:export` and `formbraid:http` remain lower-level schema and HTTP inspection commands, not a Node installation workflow.

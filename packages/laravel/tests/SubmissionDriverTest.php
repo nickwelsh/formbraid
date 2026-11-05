@@ -41,8 +41,9 @@ final class SubmissionDriverTest extends TestCase
             self::assertStringNotContainsString('XSRF', $callback);
             self::assertStringNotContainsString('document.cookie', $callback);
         } else {
-            self::assertStringNotContainsString('import(', $callback);
+            self::assertStringContainsString("import('effect/http')", $callback);
         }
+        self::assertStringContainsString("import('effect')", $callback);
     }
 
     #[DataProvider('drivers')]

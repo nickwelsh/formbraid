@@ -27,7 +27,7 @@ const _action_update = (parameters: { "user": string | number; }) => ({ version:
         const cookie = document.cookie.split(';').map((part) => part.trim()).find((part) => part.startsWith('XSRF-TOKEN='));
         if (cookie !== undefined) headers['X-XSRF-TOKEN'] = decodeURIComponent(cookie.slice('XSRF-TOKEN='.length));
         let body: string | FormData | undefined;
-        let requestMethod: string = method.toUpperCase();
+        let requestMethod = ({ get: 'GET', post: 'POST', put: 'PUT', patch: 'PATCH', delete: 'DELETE' } as const)[method];
         const walk = (value: unknown, key: string, append: (key: string, value: string | Blob) => void, parents = new WeakSet<object>()): void => {
             if (value === undefined) return;
             if (value instanceof Blob) {
@@ -64,20 +64,34 @@ const _action_update = (parameters: { "user": string | number; }) => ({ version:
             headers['Content-Type'] = 'application/json';
         }
         if (context.signal.aborted) return { status: 'cancelled' as const };
-        const response = await fetch(url.href, { method: requestMethod, headers, ...(body === undefined ? {} : { body }), mode: 'same-origin', credentials: 'same-origin', signal: context.signal });
-        if (context.signal.aborted) return { status: 'cancelled' as const };
-        if (response.status === 422) {
-            const payload: unknown = await response.json();
-            if (context.signal.aborted) return { status: 'cancelled' as const };
-            const errors: unknown = typeof payload === 'object' && payload !== null && 'errors' in payload ? payload.errors : undefined;
-            if (errors === null || typeof errors !== 'object' || Array.isArray(errors) || Object.keys(errors).length === 0 ||
-                !Object.entries(errors).every(([key, messages]) => key !== '' && (typeof messages === 'string' ? messages.length > 0 : Array.isArray(messages) && messages.length > 0 && messages.every((message: unknown) => typeof message === 'string' && message.length > 0)))) {
-                throw new Error('Malformed Laravel validation error response.');
+        const [{ Cause, Effect, Exit, Schema }, { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse }] = await Promise.all([
+            import('effect'),
+            import('effect/http'),
+        ]);
+        const errorsSchema = Schema.Record(
+            Schema.String,
+            Schema.Union([Schema.NonEmptyString, Schema.NonEmptyArray(Schema.NonEmptyString)]),
+        ).check(Schema.isMinProperties(1), Schema.isPropertyNames(Schema.NonEmptyString));
+        let request = HttpClientRequest.make(requestMethod)(url.href, { headers });
+        if (typeof body === 'string') request = HttpClientRequest.bodyText(request, body, 'application/json');
+        else if (body !== undefined) request = HttpClientRequest.bodyFormData(request, body);
+        const program = Effect.gen(function* () {
+            const client = HttpClient.withScope(yield* HttpClient.HttpClient);
+            const response = yield* client.execute(request);
+            if (response.status === 422) {
+                const payload = yield* HttpClientResponse.schemaBodyJson(Schema.Struct({ errors: errorsSchema }))(response);
+                return { status: 'invalid' as const, errors: payload.errors };
             }
-            return { status: 'invalid' as const, errors: errors as Record<string, string | Array<string>> };
-        }
-        if (!response.ok) throw new Error(`Form submission failed with HTTP ${response.status}.`);
-        return { status: 'success' as const };
+            yield* HttpClientResponse.filterStatusOk(response);
+            return { status: 'success' as const };
+        }).pipe(
+            Effect.scoped,
+            Effect.provide(FetchHttpClient.layer),
+            Effect.provideService(FetchHttpClient.RequestInit, { mode: 'same-origin', credentials: 'same-origin' }),
+        );
+        const exit = await Effect.runPromiseExit(program, { signal: context.signal });
+        if (context.signal.aborted || (Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause))) return { status: 'cancelled' as const };
+        return Exit.isSuccess(exit) ? exit.value : { status: 'failure' as const, error: Cause.squash(exit.cause) };
     } catch (error) {
         if (context.signal.aborted || (typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError')) return { status: 'cancelled' as const };
         return { status: 'failure' as const, error };

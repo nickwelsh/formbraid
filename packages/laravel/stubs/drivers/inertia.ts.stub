@@ -31,8 +31,9 @@
     }
     context.signal.addEventListener('abort', abort, { once: true });
     // Attach before importing so cancellation during module loading is prompt and prevents the visit.
-    import('@inertiajs/react').then(({ router }) => {
+    Promise.all([import('@inertiajs/react'), import('effect')]).then(([{ router }, { Result, Schema }]) => {
         if (settled) return;
+        const errorsSchema = __FORMBRAID_ERRORS_SCHEMA__;
         const method = __FORMBRAID_METHOD__ as 'get' | 'post' | 'put' | 'patch' | 'delete';
         const hasFiles = (value: unknown, parents = new WeakSet<object>()): boolean => {
             if (value instanceof Blob) return true;
@@ -59,12 +60,12 @@
             },
             onSuccess: (): void => finish({ status: 'success' }),
             onError: (errors: unknown): void => {
-                if (errors === null || typeof errors !== 'object' || Array.isArray(errors) || Object.keys(errors).length === 0 ||
-                    !Object.entries(errors).every(([key, messages]) => key !== '' && (typeof messages === 'string' ? messages.length > 0 : Array.isArray(messages) && messages.length > 0 && messages.every((message: unknown) => typeof message === 'string' && message.length > 0)))) {
-                    finish({ status: 'failure', error: new Error('Malformed Inertia validation errors.') });
+                const decoded = Schema.decodeUnknownResult(errorsSchema)(errors);
+                if (Result.isFailure(decoded)) {
+                    finish({ status: 'failure', error: decoded.failure });
                     return;
                 }
-                finish({ status: 'invalid', errors: errors as Record<string, string | Array<string>> });
+                finish({ status: 'invalid', errors: decoded.success });
             },
             onCancel: (): void => finish({ status: 'cancelled' }),
             onFinish: (): void => finish({ status: 'failure', error: new Error('The Inertia visit finished without an outcome.') }),

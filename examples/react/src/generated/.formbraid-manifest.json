@@ -2,7 +2,7 @@
     "version": 1,
     "files": {
         "php/Enums/FormField.php": "6a7ce5f849712fd938111ba4e1531c6b1192ae62fb90f8fd29d1371a00efffa9",
-        "src/generated/controllers/Example/Http/Controllers/ProfileController.ts": "a4cc594568fcb869985ed020fedb9c04a8978c024af8e334d4f213317b142df3",
+        "src/generated/controllers/Example/Http/Controllers/ProfileController.ts": "1983391647042c56fdfd68dccce3108e3f90460d8a90f8112b3e949ec799f9c5",
         "src/generated/requests/Example/UpdateProfileRequest.ts": "ae27b32e2ac51bbaa83a76b44c3979d44724c308060074b502571510ac293d04"
     }
 }

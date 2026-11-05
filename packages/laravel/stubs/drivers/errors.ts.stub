@@ -1,0 +1,4 @@
+Schema.Record(
+    Schema.String,
+    Schema.Union([Schema.NonEmptyString, Schema.NonEmptyArray(Schema.NonEmptyString)]),
+).check(Schema.isMinProperties(1), Schema.isPropertyNames(Schema.NonEmptyString))
