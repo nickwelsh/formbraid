@@ -20,7 +20,7 @@ Open `/formbraid/` on the development server. `docs:dev` generates API data befo
 
 Write guides in `content/docs/0.x`; navigation is controlled by `meta.json`. Refquill reads every public TypeScript package entry point and `packages/laravel/src` through `refquill.json`, writing ignored `generated/api.json`. docs-base renders it at `/formbraid/docs/0.x/api` and includes it in navigation, search, and Markdown exports. Generate this file before running the site directly. Do not edit the JSON by hand.
 
-Framework peers match the docs-base starter. Keep the Waku request-handler patch until docs-base upgrades its required Waku version. Docs use their own React version; runtime packages retain their existing peers.
+Framework peers match docs-base 1.0.2. Its pinned Base UI 16.17.5 still declares Fumadocs core 16.17.5, so the workspace allows core 16.17.9 specifically for that package. Keep the Waku request-handler patch until docs-base upgrades its required Waku version. Docs use their own React version; runtime packages retain their existing peers.
 
 Refquill 0.1.0 also needs the pinned patch in `patches/@nickwelsh__refquill@0.1.0.patch`: TypeDoc can emit re-exported or inherited declarations outside their parent scope, while annotation resolution only needs the existing checker context. The patch removes an invalid scope transition without changing selected APIs.
 

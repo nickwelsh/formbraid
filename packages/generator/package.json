@@ -1,6 +1,6 @@
 {
     "name": "@formbraid/generator",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "description": "Optional build-time contracts and component inspection for Formbraid producer authors.",
     "homepage": "https://docs.nickwelsh.me/formbraid/",
     "bugs": {
