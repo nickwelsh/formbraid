@@ -9,6 +9,8 @@ Producers emit core definitions and callback-backed descriptors. They do not reg
 
 `@formbraid/core/vite` exports `Integration`, `ComponentMetadata`, `RegistryManifest`, the static `inspectComponents(module, root)` inspector, and `vitePlugin({ integrations })`. `@formbraid/generator` is an optional producer-author SDK re-exporting that surface. Applications can use core's Vite entry directly; there is no generator CLI or frontend-framework generator pipeline.
 
+For Effect workflows, both entrypoints export `inspectComponentsEffect(module, root)` and `RegistryInspectionError`. The effect returns `ComponentMetadata`; thrown inspection errors become typed failures recoverable with `Effect.catchTag('RegistryInspectionError', ...)`. The error retains the supplied `module`, `root`, and original `cause`, with contextual diagnostics in its message. Vite uses this boundary internally. The synchronous inspectors keep their existing behavior, and the TypeScript compiler host remains synchronous.
+
 ```ts title="resources/js/formbraid/laravel.ts"
 import type { Integration } from '@formbraid/core/vite';
 

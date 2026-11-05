@@ -161,8 +161,13 @@ if (command === 'check' || command === 'smoke' || command === 'stage') {
                 for (const [specifier, member] of [
                     ['@formbraid/core', 'defineForm'],
                     ['@formbraid/react', 'defineConfig'],
+                    ['@formbraid/react', 'createEffectOptionSource'],
                     ['@formbraid/core/vite', 'vitePlugin'],
+                    ['@formbraid/core/vite', 'inspectComponentsEffect'],
+                    ['@formbraid/core/vite', 'RegistryInspectionError'],
                     ['@formbraid/generator', 'inspectComponents'],
+                    ['@formbraid/generator', 'inspectComponentsEffect'],
+                    ['@formbraid/generator', 'RegistryInspectionError'],
                 ]) {
                     const exports = await import(specifier);
                     assert.equal(typeof exports[member], 'function', specifier);

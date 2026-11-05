@@ -10,4 +10,6 @@ Applications do not need this package. Use `@formbraid/core` and `@formbraid/rea
 
 Producer tooling can use `Integration`, `ComponentMetadata`, `RegistryManifest`, `inspectComponents(module, root)`, and `vitePlugin({ integrations })`. Integration descriptors connect a registry URL, metadata URL, backend command, input watch patterns, and output exclusions. Vite is the sole metadata producer; backend commands consume the finished JSON snapshot and emit callback-backed descriptors.
 
+`inspectComponentsEffect(module, root)` and `RegistryInspectionError` are also re-exported for Effect workflows. Inspection errors enter the typed failure channel with the original `cause` and the supplied `module` / `root`; recover by tag with `Effect.catchTag('RegistryInspectionError', ...)`. Synchronous inspection APIs remain unchanged.
+
 See the [Formbraid documentation](https://docs.nickwelsh.me/formbraid/) and [source repository](https://github.com/nickwelsh/formbraid).

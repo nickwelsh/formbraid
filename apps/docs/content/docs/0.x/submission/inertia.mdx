@@ -27,6 +27,8 @@ The Inertia generator dynamically imports the application's existing `@inertiajs
 
 The callback waits for the visit lifecycle, returns success or field errors, forwards upload progress, and connects cancellation to the visit. Errors and cancellation become explicit submission outcomes rather than resolving a promise and assuming success. Session cancellation suppresses late progress and outcomes; it cannot undo a server mutation already accepted.
 
+Effect owns the visit's one-shot outcome and scoped listener cleanup; Inertia still owns the transport, navigation, and upload serialization. A small abort-aware loading boundary keeps cancellation prompt before the lazy imports finish. Cancellation also handles late visit tokens and prevents an active `inertia:before` event when possible. The first terminal outcome wins, and later callbacks cannot overwrite it.
+
 ## Render and observe results
 
 ```tsx

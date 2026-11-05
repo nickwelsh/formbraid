@@ -10,6 +10,8 @@ pnpm add @formbraid/core effect
 
 The Node-only `@formbraid/core/vite` subpath exports `vitePlugin({ integrations })`, static `inspectComponents`, and build-only `Integration` / component metadata contracts. Keep these imports in Vite or producer tooling, never browser runtime code. Vite atomically produces component metadata before invoking an integration's backend command; it never evaluates the application's UI modules.
 
+`inspectComponentsEffect(module, root)` provides the same inspection as `Effect<ComponentMetadata, RegistryInspectionError>`. Recover with `Effect.catchTag('RegistryInspectionError', ...)`; the error retains `module`, `root`, and the original `cause`, and its message includes that context. Vite uses this boundary so thrown inspection errors become typed failures rather than defects. The synchronous `inspectComponents` and `inspectRegistries` APIs retain their existing return values and thrown errors.
+
 Generation runs in a managed Effect runtime with scoped temporary files and child processes. Watch changes are debounced and serialized; changes arriving during a command queue another run without interrupting it. Closing Vite interrupts pending work and waits for process cleanup, escalating to a forced kill after two seconds when needed. Backend commands can still be executable/argument tuples or shell strings.
 
 ## Portable option metadata

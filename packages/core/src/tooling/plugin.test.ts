@@ -4,10 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
+import { Effect } from 'effect';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { build, createServer } from 'vite';
 import type { ViteDevServer } from 'vite';
 import type { ComponentMetadata, Integration } from './contracts.js';
+import { inspectComponents, inspectComponentsEffect, inspectRegistries, RegistryInspectionError } from './inspect.js';
 import { vitePlugin } from './plugin.js';
 
 const directories: Array<string> = [];
@@ -110,6 +112,7 @@ describe('vite-owned component metadata', () => {
             plugins: [vitePlugin({ integrations: [integration] })],
         });
         const [metadata] = await receipts(root);
+        expect(Effect.runSync(inspectComponentsEffect('registry.ts', root))).toStrictEqual(metadata);
         expect(metadata?.fields['input']?.props['limit']).toStrictEqual({ required: true, type: { kind: 'number' } });
         expect(metadata?.fields['input']?.props['tone']).toStrictEqual({
             required: false,
@@ -123,6 +126,39 @@ describe('vite-owned component metadata', () => {
         });
         await expect(readFile(path.join(root, 'generated.js'), 'utf8')).resolves.toContain('"input"');
         await expect(readFile(path.join(root, 'dist/index.html'), 'utf8')).resolves.toContain('assets/');
+    }, 30_000);
+
+    it('exposes recoverable inspection failures without changing synchronous inspector errors', async () => {
+        expect.hasAssertions();
+        const { root } = await fixture();
+        await writeFile(path.join(root, 'registry.ts'), 'export {};');
+        const error = Effect.runSync(Effect.flip(inspectComponentsEffect('registry.ts', root)));
+        expect(error).toBeInstanceOf(RegistryInspectionError);
+        expect(error).toMatchObject({
+            _tag: 'RegistryInspectionError',
+            module: 'registry.ts',
+            root,
+            cause: new Error('registry.ts does not export default.'),
+        });
+        expect(error.message).toContain('registry.ts does not export default.');
+        expect(() => inspectComponents('registry.ts', root)).toThrow(new Error('registry.ts does not export default.'));
+        expect(() => inspectRegistries('registry.ts', root)).toThrow(new Error('registry.ts does not export default.'));
+    }, 30_000);
+
+    it('reports inspection context and skips generation when the compiler configuration is malformed', async () => {
+        expect.hasAssertions();
+        const { root, integration } = await fixture();
+        await writeFile(path.join(root, 'tsconfig.json'), '{');
+        await expect(
+            build({
+                root,
+                configFile: false,
+                logLevel: 'silent',
+                plugins: [vitePlugin({ integrations: [integration] })],
+            }),
+        ).rejects.toThrow(`Cannot inspect registry ${path.join(root, 'registry.ts')} (root: ${root}):`);
+        await expect(receipts(root)).resolves.toHaveLength(0);
+        await expect(readdir(root)).resolves.not.toContain('metadata.json');
     }, 30_000);
 
     it('watches new module directories and imported prop types without looping on generated enums', async () => {

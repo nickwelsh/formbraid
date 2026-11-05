@@ -6,7 +6,7 @@ import type { Fiber } from 'effect';
 import { ChildProcess, ChildProcessSpawner } from 'effect/process';
 import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import type { Integration } from './contracts.js';
-import { inspectComponents } from './inspect.js';
+import { inspectComponentsEffect } from './inspect.js';
 
 /** Vite is the sole metadata producer. Commands only consume the finished snapshot. */
 export function vitePlugin({ integrations }: { readonly integrations: ReadonlyArray<Integration> }): Plugin {
@@ -32,7 +32,7 @@ export function vitePlugin({ integrations }: { readonly integrations: ReadonlyAr
         const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
         const registry = fileURLToPath(integration.registry);
         const destination = fileURLToPath(integration.metadata);
-        const metadata = inspectComponents(registry, config.root);
+        const metadata = yield* inspectComponentsEffect(registry, config.root);
         const source = `${JSON.stringify(metadata, null, 2)}\n`;
         yield* fs.makeDirectory(path.dirname(destination), { recursive: true });
         const previous = yield* fs

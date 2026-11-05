@@ -97,4 +97,36 @@ Each control and operation owns a separate mounted adapter and latest-state cell
 
 See `src/options.test.tsx` for an accessible test control and a fake live provider covering multiple updates, late results, closed selection, isolation, reset, StrictMode, SSR, errors, and missing/falsy inputs. Top-level/concrete nested dependencies are supported. Wildcard-relative/repeater dependencies, automatic clearing, multi-select UI, pagination, retry policy, production styling, and transport adapters are outside this contract.
 
+### Effect-backed requests
+
+`createEffectOptionSource` returns an ordinary `OptionSourceAdapter` for request-based providers. Create it outside render and attach it with `withOptionSources`; existing provider components and `useFieldOptions` are unchanged.
+
+```tsx
+import { createEffectOptionSource, withOptionSources } from '@formbraid/react';
+import { decodeSearchInputs, decodeResolveInputs, searchParties, findParty } from './party-provider';
+
+const PartyOptions = createEffectOptionSource({
+    list: {
+        input: decodeSearchInputs,
+        load: ({ organizationId, query }) => searchParties({ organizationId, query }),
+    },
+    resolve: {
+        input: decodeResolveInputs,
+        load: ({ organizationId }, selectedValue) => findParty({ organizationId, id: selectedValue }),
+    },
+});
+
+const descriptor = withOptionSources(generatedDescriptor, {
+    'PartyRequest:party_id': PartyOptions,
+});
+```
+
+The imported functions are application-owned. Each `input` receives `readonly ResolvedOptionInput[]` and returns typed loader arguments, or `undefined` when its dependencies are not ready. Decode unknown values with Effect Schema; a thrown decoding error becomes an `error` state. Listing and resolution have separate input contracts, and the selected ID is supplied independently to the resolver.
+
+`list.load` returns `Effect<readonly Option[], E, R>`; an empty array is completed empty data. The optional `resolve.load` returns `Effect<Option | null, E, R>`; `null` or an omitted resolver means `unavailable`, without changing the field's ID. Disabled or unready operations report `idle`. Failures and defects report `error` with the underlying error, not a rejected UI task.
+
+Loaders run in a scope per operation. Input changes and unmounting abort the old execution and release scoped resources; late results cannot reach the replacement. No loader runs during SSR, and StrictMode cleanup is supported. Effects requiring application services must supply `run: runtime.runPromise` (or another core `EffectRunner`); service-free loaders use the default runner. The adapter owns each request's scope, not the application's runtime. Runtime/authorization identity changes must replace the binding/context just as with other adapters.
+
+This helper adds no cache, retry policy, debounce, subscriptions, or HTTP endpoint convention. Use existing provider components for live subscriptions and provider hooks, and decode network responses inside the application's loader.
+
 See the [Formbraid documentation](https://docs.nickwelsh.me/formbraid/) and [source repository](https://github.com/nickwelsh/formbraid).

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { Data, Effect } from 'effect';
 import ts from 'typescript-api';
 import type {
     ComponentInfo,
@@ -8,6 +9,18 @@ import type {
     RegistryManifest,
     TypeShape,
 } from './contracts.js';
+
+// oxlint-disable-next-line eslint/new-cap -- Effect's tagged error constructor is capitalized.
+export class RegistryInspectionError extends Data.TaggedError('RegistryInspectionError')<{
+    readonly module: string;
+    readonly root: string;
+    readonly cause: unknown;
+}> {
+    public override get message(): string {
+        const reason = this.cause instanceof Error ? this.cause.message : String(this.cause);
+        return `Cannot inspect registry ${this.module} (root: ${this.root}): ${reason}`;
+    }
+}
 
 interface Session {
     readonly program: ts.Program;
@@ -443,6 +456,17 @@ export function inspectComponents(module: string, root: string): ComponentMetada
         components: registry(components, session, modern),
         groups: registry(groups, session, modern),
     };
+}
+
+/** Capture the synchronous compiler boundary as a recoverable failure without evaluating UI modules. */
+export function inspectComponentsEffect(
+    module: string,
+    root: string,
+): Effect.Effect<ComponentMetadata, RegistryInspectionError> {
+    return Effect.try({
+        try: () => inspectComponents(module, root),
+        catch: (cause) => new RegistryInspectionError({ module, root, cause }),
+    });
 }
 
 export function inspectRegistries(module: string, root: string): RegistryManifest {

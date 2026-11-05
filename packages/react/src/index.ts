@@ -2,6 +2,8 @@ export { createFormbraid, defineConfig } from './create-formbraid.js';
 export type { FormbraidOptions } from './create-formbraid.js';
 export { useFieldContext, useFormContext } from './hooks.js';
 export { withOptionSources, useFieldOptions } from './options.js';
+export { createEffectOptionSource } from './effect-options.js';
+export type { EffectOptionSourceOptions } from './effect-options.js';
 export type {
     ResolvedOptionInput,
     OptionListState,

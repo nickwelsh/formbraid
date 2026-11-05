@@ -1,5 +1,11 @@
 /** Optional build-time SDK for producer packages. Applications configure @formbraid/core/vite directly. */
-export { inspectComponents, inspectRegistries, vitePlugin } from '@formbraid/core/vite';
+export {
+    inspectComponents,
+    inspectComponentsEffect,
+    inspectRegistries,
+    RegistryInspectionError,
+    vitePlugin,
+} from '@formbraid/core/vite';
 export type {
     ComponentInfo,
     ComponentMetadata,

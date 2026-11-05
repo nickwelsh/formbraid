@@ -4,10 +4,12 @@ import { StrictMode, useEffect, useMemo, useState, useSyncExternalStore } from '
 import type { ReactNode } from 'react';
 import { renderToString } from 'react-dom/server';
 import type { FieldDefinition, FormDescriptor, JsonValue, Option, SubmissionCallback } from '@formbraid/core';
+import { Context, Effect, Schema } from 'effect';
 import { defineConfig } from './create-formbraid.js';
+import { createEffectOptionSource } from './effect-options.js';
 import { useFieldContext, useFormContext } from './hooks.js';
 import { useFieldOptions, withOptionSources } from './options.js';
-import type { OptionListState, OptionSelectionState, OptionSourceProps } from './options.js';
+import type { OptionListState, OptionSelectionState, OptionSourceAdapter, OptionSourceProps } from './options.js';
 
 vi.setConfig({ testTimeout: 10_000 });
 
@@ -195,7 +197,7 @@ function fakeProvider() {
 const defaultContext = { parent: 7 };
 
 function descriptor(
-    provider: ReturnType<typeof fakeProvider>,
+    provider: { readonly Adapter: OptionSourceAdapter },
     context: Readonly<Record<string, JsonValue>> = defaultContext,
 ) {
     const submit = vi.fn<SubmissionCallback<Values>>(() => ({ status: 'success' }));
@@ -559,5 +561,177 @@ describe('field option sources', () => {
             screen.getByLabelText('Selected ID').textContent,
             screen.getByLabelText('Selection').textContent,
         ]).toStrictEqual([false, '8', 'pending']);
+    });
+});
+
+describe('effect option sources', () => {
+    afterEach(cleanup);
+
+    it.each([0, ''])('resolves selected ID %j with application services', async (id) => {
+        expect.hasAssertions();
+        // oxlint-disable-next-line eslint/new-cap -- Effect's service constructor is capitalized.
+        const Labels = Context.Service<{ readonly prefix: string }>('options/Labels');
+        const Adapter = createEffectOptionSource({
+            list: { input: () => true, load: () => Effect.succeed([]) },
+            resolve: {
+                input: () => true,
+                load: (_input, value) =>
+                    Labels.pipe(Effect.map((labels) => ({ value, label: `${labels.prefix}${value}` }))),
+            },
+            run: Effect.runPromiseWith(Context.make(Labels, { prefix: 'Customer ' })),
+        });
+        render(
+            <Adapter operation="resolve" inputs={[]} enabled selectedValue={id}>
+                {(state) => JSON.stringify(state)}
+            </Adapter>,
+        );
+        await screen.findByText(JSON.stringify({ status: 'complete', item: { value: id, label: `Customer ${id}` } }));
+        expect(screen.getByText(/Customer/u).textContent).toContain(`"value":${JSON.stringify(id)}`);
+    });
+
+    it('interrupts obsolete searches and scoped resources without publishing late results', async () => {
+        expect.hasAssertions();
+        const requests: Array<{
+            query: string;
+            signal: AbortSignal;
+            complete: (items: ReadonlyArray<Option>) => void;
+        }> = [];
+        let resources = 0;
+        const Adapter = createEffectOptionSource({
+            list: {
+                input: (inputs) => Schema.decodeUnknownSync(Schema.String)(inputs[0]?.value),
+                load: (query) =>
+                    Effect.acquireRelease(
+                        Effect.sync(() => {
+                            resources += 1;
+                        }),
+                        () =>
+                            Effect.sync(() => {
+                                resources -= 1;
+                            }),
+                    ).pipe(
+                        Effect.flatMap(() =>
+                            Effect.promise(
+                                async (signal) =>
+                                    await new Promise<ReadonlyArray<Option>>((resolve) => {
+                                        requests.push({ query, signal, complete: resolve });
+                                    }),
+                            ),
+                        ),
+                    ),
+            },
+        });
+        const { form } = descriptor({ Adapter });
+        const view = render(
+            <StrictMode>
+                <Form form={form} />
+            </StrictMode>,
+        );
+        expect(resources).toBe(0);
+        fireEvent.click(screen.getByText('Open'));
+        const first = requests.at(-1);
+        fireEvent.change(screen.getByLabelText('Party filter'), { target: { value: 'be' } });
+        const second = requests.at(-1);
+        expect([first?.query, first?.signal.aborted, second?.query, resources]).toStrictEqual(['', true, 'be', 1]);
+        await act(async () => {
+            first?.complete([alpha]);
+            await Promise.resolve();
+        });
+        expect([
+            screen.queryByRole('option', { name: 'Alpha' }),
+            screen.getByLabelText('Listing').textContent,
+        ]).toStrictEqual([null, 'pending']);
+        await act(async () => {
+            second?.complete([beta]);
+            await Promise.resolve();
+        });
+        expect(screen.getByRole('option', { name: 'Beta' }).textContent).toBe('Beta');
+        fireEvent.click(screen.getByText('Organization B'));
+        const third = requests.at(-1);
+        view.unmount();
+        await act(async () => {
+            third?.complete([alpha]);
+            await Promise.resolve();
+        });
+        expect([third?.signal.aborted, resources]).toStrictEqual([true, 0]);
+    });
+
+    it.each([
+        {
+            name: 'missing inputs',
+            input: (): undefined => {
+                /* Not ready. */
+            },
+            load: () => Effect.succeed([alpha]),
+            status: 'idle',
+        },
+        { name: 'empty results', input: () => true, load: () => Effect.succeed([]), status: 'complete' },
+        { name: 'failed request', input: () => true, load: () => Effect.fail('offline'), status: 'error' },
+        {
+            name: 'invalid input',
+            input: (): boolean => Schema.decodeUnknownSync(Schema.Boolean)('bad'),
+            load: () => Effect.succeed([alpha]),
+            status: 'error',
+        },
+    ])('reports $name without confusing it with completed empty results', async ({ input, load, status }) => {
+        expect.hasAssertions();
+        const Adapter = createEffectOptionSource({ list: { input, load } });
+        const { form } = descriptor({ Adapter });
+        render(<Form form={form} />);
+        fireEvent.click(screen.getByText('Open'));
+        await screen.findByText(status, { selector: 'output[aria-label="Listing"]' });
+        expect(screen.getAllByRole('option')).toHaveLength(1);
+        expect(screen.getByLabelText('Selection').textContent).toBe('unavailable');
+    });
+
+    it('reports a missing selected record as unavailable without clearing its ID', async () => {
+        expect.hasAssertions();
+        const Adapter = createEffectOptionSource({
+            list: { input: () => true, load: () => Effect.succeed([alpha]) },
+            resolve: { input: () => true, load: () => Effect.succeed(null) },
+        });
+        const { form } = descriptor({ Adapter });
+        render(<Form form={form} />);
+        await screen.findByText('unavailable');
+        expect(screen.getByLabelText('Selected ID').textContent).toBe('99');
+    });
+
+    it('skips a disabled runner and reports runner acquisition errors when enabled', async () => {
+        expect.hasAssertions();
+        const Adapter = createEffectOptionSource({
+            list: { input: () => true, load: () => Effect.succeed([alpha]) },
+            run: () => {
+                throw new Error('runtime unavailable');
+            },
+        });
+        const view = render(
+            <Adapter operation="list" inputs={[]} enabled={false}>
+                {(state) => `${state.status}:${String(state.error)}`}
+            </Adapter>,
+        );
+        await act(async () => {
+            await Promise.resolve();
+        });
+        expect(screen.getByText('idle:undefined').textContent).toBe('idle:undefined');
+        view.rerender(
+            <Adapter operation="list" inputs={[]} enabled>
+                {(state) => `${state.status}:${String(state.error)}`}
+            </Adapter>,
+        );
+        await screen.findByText('error:Error: runtime unavailable');
+        expect(screen.queryByText('idle:undefined')).toBeNull();
+    });
+
+    it('does not execute option requests while rendering on the server', () => {
+        expect.hasAssertions();
+        const Adapter = createEffectOptionSource({
+            list: { input: () => true, load: () => Effect.die('SSR must not execute') },
+        });
+        const html = renderToString(
+            <Adapter operation="list" inputs={[]} enabled>
+                {(state) => state.status}
+            </Adapter>,
+        );
+        expect(html).toBe('pending');
     });
 });

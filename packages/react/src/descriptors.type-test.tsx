@@ -2,6 +2,7 @@
 import type { FormDefinition, FormDescriptor, SubmissionCallback, SubmissionResult } from '@formbraid/core';
 import { Context, Effect, Schema, SchemaGetter } from 'effect';
 import { createFormbraid } from './create-formbraid.js';
+import { createEffectOptionSource } from './effect-options.js';
 import { withOptionSources } from './options.js';
 import type { FieldProps } from './types.js';
 
@@ -162,4 +163,38 @@ export function DescriptorServicesTypeProof() {
     });
     void invalid;
     return <runtime.Form form={instance} />;
+}
+
+export function EffectOptionSourcesTypeProof() {
+    const list = {
+        input: () => ({ query: 'search' }),
+        load: (input: { query: string }) =>
+            Decode.pipe(Effect.map((service) => [{ value: 1, label: service.prefix + input.query }])),
+    };
+    // @ts-expect-error A loader requiring application services cannot omit its runner.
+    createEffectOptionSource({ list });
+    // @ts-expect-error The default runner cannot provide an application's services.
+    createEffectOptionSource({ list, run: Effect.runPromise });
+    const run = Effect.runPromiseWith(Context.make(Decode, { prefix: 'loaded:' }));
+    createEffectOptionSource({ list, run });
+    const resolve = {
+        input: () => ({ organization: 7 }),
+        load: (_input: { organization: number }, value: string | number) =>
+            Decode.pipe(Effect.map((service) => ({ value, label: service.prefix }))),
+    };
+    // @ts-expect-error Resolver-only service requirements also require a runner.
+    createEffectOptionSource({ list: { input: () => true, load: () => Effect.succeed([]) }, resolve });
+    createEffectOptionSource({ list, resolve, run });
+    createEffectOptionSource({
+        list: {
+            input: () => ({ query: 'search' }),
+            load: (input) => {
+                const query: string = input.query;
+                // @ts-expect-error Input mapping determines the loader's argument type.
+                const invalid: number = input.query;
+                void invalid;
+                return Effect.succeed([{ value: 1, label: query }]);
+            },
+        },
+    });
 }

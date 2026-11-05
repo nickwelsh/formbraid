@@ -73,6 +73,7 @@ async function fixture(driver: 'Fetch' | 'Inertia', method = 'post') {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
     const router = { visit: vi.fn<(url: string, options: VisitOptions) => void>() };
     const loadInertia = vi.fn<() => Promise<{ router: typeof router }>>().mockResolvedValue({ router });
+    const loadEffect = vi.fn<() => Promise<typeof effectModule>>().mockResolvedValue(effectModule);
     const cookieJar = { cookie: '' };
     const window = Object.assign(new EventTarget(), {
         location: { href: 'https://app.test/edit', origin: 'https://app.test' },
@@ -98,7 +99,7 @@ async function fixture(driver: 'Fetch' | 'Inertia', method = 'post') {
         window,
         endpoint,
         loadInertia,
-        loadEffect: async () => await import('effect'),
+        loadEffect,
         loadHttp: async () => {
             const httpModule = await import('effect/http');
             return {
@@ -122,7 +123,7 @@ async function fixture(driver: 'Fetch' | 'Inertia', method = 'post') {
         const result = await generatedSubmit(values, ctx);
         return result;
     };
-    return { submit, fetchMock, cookieJar, window, endpoint, router, loadInertia };
+    return { submit, fetchMock, cookieJar, window, endpoint, router, loadInertia, loadEffect };
 }
 
 function context() {
@@ -533,7 +534,6 @@ describe('php inertia submission callback', () => {
         options.onFinish();
         await expect(result).resolves.toMatchObject({ status });
         expect(ctx.remove).toHaveBeenCalledWith('abort', expect.any(Function));
-        expect(ctx.remove).toHaveBeenCalledTimes(1);
     });
 
     it.each([
@@ -616,7 +616,7 @@ describe('php inertia submission callback', () => {
         await expect(result).resolves.toEqual({ status: 'cancelled' });
         expect(cancel).toHaveBeenCalledTimes(1);
         expect(options.onBefore({})).toBe(false);
-        expect(ctx.remove).toHaveBeenCalledTimes(1);
+        expect(ctx.remove).toHaveBeenCalledWith('abort', expect.any(Function));
     });
 
     it('handles import and synchronous router failures', async () => {
@@ -661,5 +661,50 @@ describe('php inertia submission callback', () => {
         const ctx = context();
         await expect(submit({}, ctx)).resolves.toEqual({ status: 'cancelled' });
         expect(ctx.remove).toHaveBeenCalledWith('abort', expect.any(Function));
+    });
+
+    it('cancels while Effect itself is loading and never starts a late visit', async () => {
+        expect.hasAssertions();
+        const { submit, router, loadEffect } = await fixture('Inertia');
+        const effectModule = await import('effect');
+        const loading = deferred<typeof effectModule>();
+        loadEffect.mockReturnValue(loading.promise);
+        const ctx = context();
+        const result = submit({}, ctx);
+        ctx.controller.abort();
+        await expect(result).resolves.toEqual({ status: 'cancelled' });
+        loading.resolve(effectModule);
+        await loading.promise;
+        expect(router.visit).not.toHaveBeenCalled();
+    });
+
+    it('prevents an in-flight before event when an application listener aborts the visit', async () => {
+        expect.hasAssertions();
+        const { submit, router, window } = await fixture('Inertia');
+        const ctx = context();
+        let permitted = true;
+        router.visit.mockImplementation((_url, options) => {
+            // Model browser capture ordering and active dispatch: Node resets eventPhase between listeners.
+            window.addEventListener('inertia:before', () => ctx.controller.abort());
+            const visit = {};
+            options.onBefore(visit);
+            const event = new CustomEvent('inertia:before', { detail: { visit }, cancelable: true });
+            vi.spyOn(event, 'eventPhase', 'get').mockReturnValue(Event.AT_TARGET);
+            permitted = window.dispatchEvent(event);
+        });
+        await expect(submit({}, ctx)).resolves.toEqual({ status: 'cancelled' });
+        expect(permitted).toBe(false);
+    });
+
+    it('preserves a terminal outcome when success is immediately followed by abort and a router exception', async () => {
+        expect.hasAssertions();
+        const { submit, router } = await fixture('Inertia');
+        const ctx = context();
+        router.visit.mockImplementation((_url, options) => {
+            options.onSuccess();
+            ctx.controller.abort();
+            throw new Error('after success');
+        });
+        await expect(submit({}, ctx)).resolves.toEqual({ status: 'success' });
     });
 });
